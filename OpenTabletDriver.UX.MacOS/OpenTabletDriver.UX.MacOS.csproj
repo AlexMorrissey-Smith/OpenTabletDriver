@@ -3,12 +3,12 @@
   <PropertyGroup Label="Project Properties">
     <OutputType>Exe</OutputType>
     <TargetFramework>$(FrameworkBase)</TargetFramework>
-    <RuntimeIdentifiers>osx-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>osx-x64;osx-arm64</RuntimeIdentifiers>
     <AutoreleasePoolSupport>true</AutoreleasePoolSupport>
   </PropertyGroup>
 
   <ItemGroup Label="NuGet Packages">
-    <PackageReference Include="Eto.Platform.Mac64" Version="2.5.10" />
+    <PackageReference Include="Eto.Platform.Mac64" Version="2.11.0" />
   </ItemGroup>
   
   <ItemGroup Label="Project References">
