@@ -94,7 +94,21 @@ namespace OpenTabletDriver.Daemon
             try
             {
                 daemonRunning = true;
-                await host.Run(BuildDaemon(), cts.Token);
+                var daemon = BuildDaemon();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await daemon.Initialize();
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Exception(e, LogLevel.Fatal);
+                        CloseDaemon();
+                    }
+                }, cts.Token);
+
+                await host.Run(daemon, cts.Token);
                 daemonRunning = false;
                 Log.Write("ProgramMain", "Daemon gracefully stopped");
             }

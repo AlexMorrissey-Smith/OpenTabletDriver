@@ -18,6 +18,7 @@ BenchmarkDotNet.Artifacts/
 
 # User Preferences
 *.user
+LOCAL_WH851_MACOS_BLUETOOTH_PLAN.md
 
 # MacOS Cache
 *.DS_Store

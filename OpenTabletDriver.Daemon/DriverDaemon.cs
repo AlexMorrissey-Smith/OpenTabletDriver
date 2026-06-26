@@ -91,8 +91,6 @@ namespace OpenTabletDriver.Daemon
                 Log.WriteNotify("Detect", message.ToString(), LogLevel.Warning);
             }
 
-            LoadUserSettings().Wait();
-
             SleepDetector.Slept += async () =>
             {
                 if (System.Diagnostics.Debugger.IsAttached)
@@ -102,6 +100,12 @@ namespace OpenTabletDriver.Daemon
                 await DetectTablets();
                 await SetSettings(Settings);
             };
+        }
+
+        public async Task Initialize()
+        {
+            await LoadUserSettings();
+            Resynchronize?.Invoke(this, EventArgs.Empty);
         }
 
         private static IEnumerable<string> safeGetProcessDetails(Process[] processes)
@@ -649,7 +653,7 @@ namespace OpenTabletDriver.Daemon
 
         public Task<Settings> GetSettings()
         {
-            return Task.FromResult(Settings!);
+            return Task.FromResult(Settings ?? Settings.GetDefaults());
         }
 
         public Task<IEnumerable<SerializedDeviceEndpoint>> GetDevices()

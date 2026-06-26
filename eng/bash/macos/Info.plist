@@ -8,6 +8,8 @@
     <string>net.opentabletdriver</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.12</string>
     <key>CFBundleDevelopmentRegion</key>
@@ -15,6 +17,8 @@
     <key>NSHumanReadableCopyright</key>
     <string>
     </string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>OpenTabletDriver uses Bluetooth to detect and read supported wireless tablets.</string>
     <key>CFBundleIconFile</key>
     <string>Icon.icns</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -28,8 +32,8 @@
     <key>CFBundleExecutable</key>
     <string>OpenTabletDriver.UX.MacOS</string>
     <key>NSRequiresAquaSystemAppearance</key>
-    <string>False</string>
+    <false/>
     <key>LSUIElement</key>
-    <string>False</string>
+    <false/>
   </dict>
 </plist>

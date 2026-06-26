@@ -19,14 +19,20 @@
     {
       "VendorID": 9580,
       "ProductID": 8195,
+      "InputReportLength": 10,
+      "ReportParser": "OpenTabletDriver.Configurations.Parsers.Huion.WH851BluetoothReportParser"
+    },
+    {
+      "VendorID": 9580,
+      "ProductID": 8195,
       "InputReportLength": 12,
-      "ReportParser": "OpenTabletDriver.Configurations.Parsers.Huion.InspiroyReportParser",
-      "DeviceStrings": {
-        "201": "GM001_T21f_\\d{6}$"
-      },
-      "InitializationStrings": [
-        200
-      ]
+      "ReportParser": "OpenTabletDriver.Configurations.Parsers.Huion.InspiroyReportParser"
+    },
+    {
+      "VendorID": 9580,
+      "ProductID": 33361,
+      "InputReportLength": 10,
+      "ReportParser": "OpenTabletDriver.Configurations.Parsers.Huion.WH851BluetoothReportParser"
     }
   ],
   "Attributes": {
