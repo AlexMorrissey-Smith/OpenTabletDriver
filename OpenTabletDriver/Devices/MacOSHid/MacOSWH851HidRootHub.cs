@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -156,6 +157,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
         {
             private readonly IntPtr device;
             private readonly bool requiresListenAccess;
+            private readonly string? bluetoothPeripheralIdentifier;
             private readonly int locationId;
             private readonly int usagePage;
             private readonly int usage;
@@ -176,6 +178,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
                 ProductName = IOHID.GetStringProperty(device, "Product") ?? "WH851";
                 FriendlyName = ProductName;
                 SerialNumber = IOHID.GetStringProperty(device, "SerialNumber") ?? string.Empty;
+                bluetoothPeripheralIdentifier = IOHID.GetStringProperty(device, "PhysicalDeviceUniqueID");
                 DeviceAttributes = new Dictionary<string, string>
                 {
                     ["Transport"] = IOHID.GetStringProperty(device, "Transport") ?? "Bluetooth Low Energy",
@@ -202,7 +205,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
             public bool CanOpen => true;
             public IDictionary<string, string> DeviceAttributes { get; }
 
-            public IDeviceEndpointStream Open() => new MacOSWH851HidEndpointStream(device, InputReportLength, requiresListenAccess);
+            public IDeviceEndpointStream Open() => new MacOSWH851HidEndpointStream(device, InputReportLength, requiresListenAccess, bluetoothPeripheralIdentifier);
 
             public string? GetDeviceString(byte index) => null;
         }
@@ -210,15 +213,18 @@ namespace OpenTabletDriver.Devices.MacOSHid
         private sealed class MacOSWH851HidEndpointStream : IDeviceEndpointStream
         {
             private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(2);
-
             private readonly IntPtr device;
             private readonly int reportLength;
             private readonly bool requiresListenAccess;
+            private readonly string? bluetoothPeripheralIdentifier;
             private readonly BlockingCollection<byte[]> reports = new();
             private readonly ManualResetEventSlim ready = new();
             private readonly Thread runLoopThread;
             private readonly IOHID.IOHIDReportCallback reportCallback;
             private readonly CoreGraphics.CGEventTapCallBack eventTapCallback;
+            private Process? bluetoothBridgeProcess;
+            private Thread? bluetoothBridgeReaderThread;
+            private Thread? bluetoothBridgeErrorThread;
             private IntPtr reportBuffer;
             private IntPtr runLoop;
             private IntPtr manager;
@@ -227,15 +233,20 @@ namespace OpenTabletDriver.Devices.MacOSHid
             private GCHandle gcHandle;
             private volatile bool disposed;
             private int openResult = -1;
+            private int usingCoreBluetoothBridge;
             private int loggedReports;
             private int loggedEvents;
+            private int loggedRawEvents;
+            private int loggedNativeSuppressed;
+            private int loggedTapDisabled;
             private int loggedSyntheticReports;
 
-            public MacOSWH851HidEndpointStream(IntPtr device, int reportLength, bool requiresListenAccess)
+            public MacOSWH851HidEndpointStream(IntPtr device, int reportLength, bool requiresListenAccess, string? bluetoothPeripheralIdentifier)
             {
                 this.device = IOHID.CFRetain(device);
                 this.reportLength = Math.Max(reportLength, 1);
                 this.requiresListenAccess = requiresListenAccess;
+                this.bluetoothPeripheralIdentifier = bluetoothPeripheralIdentifier;
                 reportCallback = OnReport;
                 eventTapCallback = OnEventTap;
                 runLoopThread = new Thread(Run)
@@ -321,6 +332,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
                 disposed = true;
                 ready.Set();
                 reports.CompleteAdding();
+                StopBluetoothBridge();
 
                 if (runLoop != IntPtr.Zero)
                 {
@@ -371,20 +383,21 @@ namespace OpenTabletDriver.Devices.MacOSHid
                     gcHandle = GCHandle.Alloc(this);
 
                     if (requiresListenAccess)
-                        openResult = OpenBluetoothEventTap();
-                    else
                     {
-                        openResult = IOHID.IOHIDDeviceOpen(device, IOHID.IOHIDOptionsTypeNone);
-                        if (openResult != 0)
+                        openResult = OpenBluetoothBridge();
+                        if (openResult == 0)
                         {
-                            ready.Set();
-                            return;
+                            Interlocked.Exchange(ref usingCoreBluetoothBridge, 1);
+                            if (OpenBluetoothEventTap() != 0)
+                                Log.Write("WH851 macOS HID", "CoreBluetooth bridge is active, but Quartz suppression for native Bluetooth tablet events could not be installed.", LogLevel.Warning);
                         }
-
-                        reportBuffer = Marshal.AllocHGlobal(reportLength);
-                        IOHID.IOHIDDeviceRegisterInputReportCallback(device, reportBuffer, reportLength, reportCallback, GCHandle.ToIntPtr(gcHandle));
-                        IOHID.IOHIDDeviceScheduleWithRunLoop(device, runLoop, IOHID.CFRunLoopDefaultMode);
+                        else
+                            openResult = OpenBluetoothDevice();
+                        if (openResult != 0)
+                            openResult = OpenBluetoothEventTap();
                     }
+                    else
+                        openResult = OpenInputReportDevice(IOHID.IOHIDOptionsTypeNone, "USB endpoint");
 
                     ready.Set();
 
@@ -402,7 +415,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
                             IOHID.CFRelease(manager);
                             manager = IntPtr.Zero;
                         }
-                        else if (eventTap != IntPtr.Zero)
+                        if (eventTap != IntPtr.Zero)
                         {
                             if (eventTapSource != IntPtr.Zero)
                             {
@@ -415,7 +428,8 @@ namespace OpenTabletDriver.Devices.MacOSHid
                             IOHID.CFRelease(eventTap);
                             eventTap = IntPtr.Zero;
                         }
-                        else
+
+                        if (reportBuffer != IntPtr.Zero)
                         {
                             IOHID.IOHIDDeviceUnscheduleFromRunLoop(device, runLoop, IOHID.CFRunLoopDefaultMode);
                             IOHID.IOHIDDeviceClose(device, IOHID.IOHIDOptionsTypeNone);
@@ -425,6 +439,177 @@ namespace OpenTabletDriver.Devices.MacOSHid
                     reports.CompleteAdding();
                     ready.Set();
                 }
+            }
+
+            private int OpenBluetoothBridge()
+            {
+                if (string.IsNullOrWhiteSpace(bluetoothPeripheralIdentifier))
+                {
+                    Log.Write("WH851 macOS HID", "Bluetooth peripheral identifier is unavailable; cannot use CoreBluetooth bridge.", LogLevel.Warning);
+                    return -1;
+                }
+
+                var bridgePath = Path.Combine(AppContext.BaseDirectory, "OpenTabletDriver.WH851BleBridge");
+                if (!File.Exists(bridgePath))
+                {
+                    Log.Write("WH851 macOS HID", $"CoreBluetooth bridge helper was not found at '{bridgePath}'.", LogLevel.Warning);
+                    return -1;
+                }
+
+                var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = bridgePath,
+                        ArgumentList = { bluetoothPeripheralIdentifier },
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    },
+                    EnableRaisingEvents = true
+                };
+
+                try
+                {
+                    if (!process.Start())
+                        return -1;
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("WH851 macOS HID", $"Unable to start CoreBluetooth bridge helper: {ex.Message}", LogLevel.Warning);
+                    process.Dispose();
+                    return -1;
+                }
+
+                bluetoothBridgeProcess = process;
+                bluetoothBridgeReaderThread = new Thread(ReadBluetoothBridgeReports)
+                {
+                    Name = "WH851 CoreBluetooth report reader",
+                    IsBackground = true
+                };
+                bluetoothBridgeErrorThread = new Thread(ReadBluetoothBridgeErrors)
+                {
+                    Name = "WH851 CoreBluetooth diagnostics reader",
+                    IsBackground = true
+                };
+                bluetoothBridgeReaderThread.Start(process);
+                bluetoothBridgeErrorThread.Start(process);
+
+                Log.Debug("WH851 macOS HID", $"Using CoreBluetooth bridge path for Bluetooth endpoint {bluetoothPeripheralIdentifier}.");
+                return 0;
+            }
+
+            private void ReadBluetoothBridgeReports(object? state)
+            {
+                var process = (Process)state!;
+                try
+                {
+                    while (!disposed && !process.StandardOutput.EndOfStream)
+                    {
+                        var line = process.StandardOutput.ReadLine();
+                        if (line is null)
+                            break;
+
+                        if (!line.StartsWith("REPORT ", StringComparison.Ordinal))
+                            continue;
+
+                        var report = ParseHexReport(line[7..]);
+                        if (report.Length == 0)
+                            continue;
+
+                        if (Interlocked.Increment(ref loggedReports) <= 8)
+                            Log.Debug("WH851 macOS HID", $"CoreBluetooth report: {BitConverter.ToString(report)}");
+
+                        EnqueueReport(report);
+                    }
+                }
+                catch (Exception ex) when (!disposed)
+                {
+                    Log.Write("WH851 macOS HID", $"CoreBluetooth bridge report reader failed: {ex.Message}", LogLevel.Warning);
+                }
+            }
+
+            private static byte[] ParseHexReport(string hex)
+            {
+                var parts = hex.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var report = new byte[parts.Length];
+                for (var i = 0; i < parts.Length; i++)
+                {
+                    if (!byte.TryParse(parts[i], System.Globalization.NumberStyles.HexNumber, null, out report[i]))
+                        return [];
+                }
+
+                return report;
+            }
+
+            private void ReadBluetoothBridgeErrors(object? state)
+            {
+                var process = (Process)state!;
+                try
+                {
+                    while (!disposed && !process.StandardError.EndOfStream)
+                    {
+                        var line = process.StandardError.ReadLine();
+                        if (!string.IsNullOrWhiteSpace(line))
+                            Log.Debug("WH851 macOS HID", line);
+                    }
+                }
+                catch (Exception ex) when (!disposed)
+                {
+                    Log.Write("WH851 macOS HID", $"CoreBluetooth bridge diagnostics reader failed: {ex.Message}", LogLevel.Warning);
+                }
+            }
+
+            private void StopBluetoothBridge()
+            {
+                var process = bluetoothBridgeProcess;
+                bluetoothBridgeProcess = null;
+                if (process is null)
+                    return;
+
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill();
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            private int OpenInputReportDevice(int options, string endpointDescription)
+            {
+                var result = IOHID.IOHIDDeviceOpen(device, options);
+                if (result != 0)
+                {
+                    Log.Write("WH851 macOS HID", $"IOHIDDeviceOpen returned 0x{result:X} for {endpointDescription}.", LogLevel.Warning);
+                    return result;
+                }
+
+                reportBuffer = Marshal.AllocHGlobal(reportLength);
+                IOHID.IOHIDDeviceRegisterInputReportCallback(device, reportBuffer, reportLength, reportCallback, GCHandle.ToIntPtr(gcHandle));
+                IOHID.IOHIDDeviceScheduleWithRunLoop(device, runLoop, IOHID.CFRunLoopDefaultMode);
+                Log.Debug("WH851 macOS HID", $"Using IOHID device input report callback path for {endpointDescription}.");
+                return 0;
+            }
+
+            private int OpenBluetoothDevice()
+            {
+                var result = OpenInputReportDevice(IOHID.IOHIDOptionsTypeSeizeDevice, "Bluetooth endpoint with seize");
+                if (result == 0)
+                    return 0;
+
+                result = OpenInputReportDevice(IOHID.IOHIDOptionsTypeNone, "Bluetooth endpoint without seize");
+                if (result == 0)
+                    return 0;
+
+                Log.Write("WH851 macOS HID", "Falling back to Quartz event tap path for Bluetooth tablet events.", LogLevel.Warning);
+                return result;
             }
 
             private int OpenBluetoothEventTap()
@@ -522,23 +707,51 @@ namespace OpenTabletDriver.Devices.MacOSHid
 
                 if (type is CoreGraphics.kCGEventTapDisabledByTimeout or CoreGraphics.kCGEventTapDisabledByUserInput)
                 {
+                    if (Interlocked.Exchange(ref stream.loggedTapDisabled, 1) == 0)
+                        Log.Write("WH851 macOS HID", $"Quartz event tap was disabled by macOS event type={type}; re-enabling.", LogLevel.Warning);
+
                     if (stream.eventTap != IntPtr.Zero)
                         CoreGraphics.CGEventTapEnable(stream.eventTap, true);
                     return eventRef;
                 }
 
                 var subtype = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGMouseEventSubtype);
-                var tabletPoint = type == CoreGraphics.kCGEventTabletPointer || subtype == CoreGraphics.kCGEventMouseSubtypeTabletPoint;
+                var location = CoreGraphics.CGEventGetLocation(eventRef);
+                var x = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointX);
+                var y = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointY);
+                var buttons = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointButtons);
+                var pressure = CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventPointPressure);
+                var tiltX = CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventTiltX);
+                var tiltY = CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventTiltY);
+                var deviceId = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventDeviceID);
+                var hasUsableTabletPointFields = x != 0 || y != 0 || buttons != 0 || pressure != 0 || tiltX != 0 || tiltY != 0;
+                var tabletPoint = type == CoreGraphics.kCGEventTabletPointer
+                    || subtype == CoreGraphics.kCGEventMouseSubtypeTabletPoint;
                 var tabletProximity = type == CoreGraphics.kCGEventTabletProximity || subtype == CoreGraphics.kCGEventMouseSubtypeTabletProximity;
+
+                if (Interlocked.Increment(ref stream.loggedRawEvents) <= 24)
+                {
+                    Log.Debug(
+                        "WH851 macOS HID",
+                        $"Quartz raw event type={type} subtype={subtype} loc=<{location.X:0.##}, {location.Y:0.##}> tablet=<{x}, {y}> pressure={pressure:0.###} buttons=0x{buttons:X} tilt=<{tiltX:0.###}, {tiltY:0.###}> device={deviceId} classifiedPoint={tabletPoint} classifiedProximity={tabletProximity}."
+                    );
+                }
+
                 if (!tabletPoint && !tabletProximity)
                     return eventRef;
 
+                if (Volatile.Read(ref stream.usingCoreBluetoothBridge) != 0)
+                {
+                    if (Interlocked.Exchange(ref stream.loggedNativeSuppressed, 1) == 0)
+                        Log.Debug("WH851 macOS HID", "Suppressing native Quartz tablet events while CoreBluetooth bridge is active.");
+                    return IntPtr.Zero;
+                }
+
+                if (tabletPoint && !hasUsableTabletPointFields)
+                    return IntPtr.Zero;
+
                 if (Interlocked.Increment(ref stream.loggedEvents) <= 12)
                 {
-                    var location = CoreGraphics.CGEventGetLocation(eventRef);
-                    var x = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointX);
-                    var y = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointY);
-                    var pressure = CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventPointPressure);
                     Log.Debug("WH851 macOS HID", $"Quartz event type={type} subtype={subtype} loc=<{location.X:0.##}, {location.Y:0.##}> tablet=<{x}, {y}> pressure={pressure:0.###}.");
                 }
 

@@ -40,6 +40,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
         public const int kCGTabletEventPointPressure = 19;
         public const int kCGTabletEventTiltX = 20;
         public const int kCGTabletEventTiltY = 21;
+        public const int kCGTabletEventDeviceID = 24;
         public const int kCGTabletProximityEventEnterProximity = 38;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

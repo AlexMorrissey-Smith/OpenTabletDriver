@@ -53,7 +53,7 @@ namespace OpenTabletDriver.Tests
         }
 
         [Fact]
-        public void BluetoothParserFallsBackToInspiroyParserForUsbStyleTiltReport()
+        public void BluetoothParserParsesOfficialBlePenReport()
         {
             var parser = new WH851BluetoothReportParser();
 
@@ -64,18 +64,38 @@ namespace OpenTabletDriver.Tests
                 0x34, 0x12,
                 0x78, 0x56,
                 0xbc, 0x0a,
-                0x00, 0x00,
+                0x01, 0x02,
                 0xfe,
                 0x05
             ]);
 
-            var tabletReport = Assert.IsType<TiltTabletReport>(report);
-            Assert.Equal(0x1234, tabletReport.Position.X);
-            Assert.Equal(0x5678, tabletReport.Position.Y);
+            var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
+            Assert.Equal(0x011234, tabletReport.Position.X);
+            Assert.Equal(0x025678, tabletReport.Position.Y);
             Assert.Equal(0x0abcu, tabletReport.Pressure);
             Assert.Equal(-2, tabletReport.Tilt.X);
-            Assert.Equal(-5, tabletReport.Tilt.Y);
+            Assert.Equal(5, tabletReport.Tilt.Y);
             Assert.True(tabletReport.PenButtons[0]);
+        }
+
+        [Fact]
+        public void BluetoothParserReturnsOutOfRangeWhenOfficialBleInRangeBitIsClear()
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x00,
+                0x34, 0x12,
+                0x78, 0x56,
+                0xbc, 0x0a,
+                0x01, 0x02,
+                0xfe,
+                0x05
+            ]);
+
+            Assert.IsType<OutOfRangeReport>(report);
         }
 
         [Fact]

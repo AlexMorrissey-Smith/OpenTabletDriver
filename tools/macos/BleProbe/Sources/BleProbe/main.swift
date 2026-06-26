@@ -10,6 +10,7 @@ struct Options {
     var mode: Mode
     var duration: TimeInterval = 30
     var nameContains: String?
+    var identifiers: [UUID] = []
     var services: [CBUUID] = []
     var connect = false
     var subscribe = false
@@ -34,6 +35,7 @@ final class Probe: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     private let deadline: Date
     private var seenPeripherals: Set<UUID> = []
     private var activePeripherals: Set<UUID> = []
+    private var retainedPeripherals: [UUID: CBPeripheral] = [:]
     private var packetCount = 0
     private var logFile: FileHandle?
     private var done = false
@@ -49,7 +51,7 @@ final class Probe: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         }
 
         super.init()
-        write("START mode=\(options.mode.rawValue) duration=\(Int(options.duration)) services=\(formatServices(options.services))")
+        write("START mode=\(options.mode.rawValue) duration=\(Int(options.duration)) identifiers=\(formatIdentifiers(options.identifiers)) services=\(formatServices(options.services))")
         central = CBCentralManager(delegate: self, queue: nil)
     }
 
@@ -90,12 +92,36 @@ final class Probe: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
 
         switch options.mode {
         case .scan:
+            if !options.identifiers.isEmpty {
+                let peripherals = central.retrievePeripherals(withIdentifiers: options.identifiers)
+                write("RETRIEVED count=\(peripherals.count) identifiers=\(formatIdentifiers(options.identifiers))")
+                for peripheral in peripherals {
+                    handleCandidate(peripheral, advertisement: [:], rssi: nil)
+                }
+                if peripherals.isEmpty {
+                    done = true
+                }
+                return
+            }
+
             let scanOptions = [
                 CBCentralManagerScanOptionAllowDuplicatesKey: NSNumber(value: options.allowDuplicates)
             ]
             central.scanForPeripherals(withServices: options.services.nilIfEmpty, options: scanOptions)
             write("SCAN services=\(formatServices(options.services)) duration=\(Int(options.duration))")
         case .connected:
+            if !options.identifiers.isEmpty {
+                let peripherals = central.retrievePeripherals(withIdentifiers: options.identifiers)
+                write("RETRIEVED count=\(peripherals.count) identifiers=\(formatIdentifiers(options.identifiers))")
+                for peripheral in peripherals {
+                    handleCandidate(peripheral, advertisement: [:], rssi: nil)
+                }
+                if peripherals.isEmpty {
+                    done = true
+                }
+                return
+            }
+
             guard !options.services.isEmpty else {
                 write("ERROR connected mode requires --services, for example --services 1812")
                 done = true
@@ -125,11 +151,13 @@ final class Probe: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         write("CONNECT_FAILED id=\(peripheral.identifier.uuidString) name=\(quote(peripheral.name)) error=\(quote(error?.localizedDescription))")
         activePeripherals.remove(peripheral.identifier)
+        retainedPeripherals.removeValue(forKey: peripheral.identifier)
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         write("DISCONNECTED id=\(peripheral.identifier.uuidString) name=\(quote(peripheral.name)) error=\(quote(error?.localizedDescription))")
         activePeripherals.remove(peripheral.identifier)
+        retainedPeripherals.removeValue(forKey: peripheral.identifier)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
@@ -197,6 +225,7 @@ final class Probe: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         }
 
         if activePeripherals.insert(peripheral.identifier).inserted {
+            retainedPeripherals[peripheral.identifier] = peripheral
             peripheral.delegate = self
             central.connect(peripheral, options: nil)
             write("CONNECT id=\(peripheral.identifier.uuidString) name=\(quote(name))")
@@ -261,6 +290,9 @@ private func parseOptions(arguments: [String]) throws -> Options {
         case "--name-contains":
             index += 1
             options.nameContains = try parseString(arguments, index, argument)
+        case "--identifier":
+            index += 1
+            options.identifiers = try parseIdentifiers(parseString(arguments, index, argument))
         case "--services":
             index += 1
             options.services = try parseServices(parseString(arguments, index, argument))
@@ -314,6 +346,20 @@ private func parseServices(_ value: String) throws -> [CBUUID] {
     return services
 }
 
+private func parseIdentifiers(_ value: String) throws -> [UUID] {
+    let identifiers = value
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .compactMap(UUID.init(uuidString:))
+
+    guard !identifiers.isEmpty else {
+        throw CliError.message("--identifier requires at least one UUID")
+    }
+
+    return identifiers
+}
+
 private func quote(_ value: String?) -> String {
     guard let value else {
         return "\"\""
@@ -323,6 +369,10 @@ private func quote(_ value: String?) -> String {
 
 private func formatServices(_ services: [CBUUID]) -> String {
     services.isEmpty ? "*" : services.map(\.uuidString).joined(separator: ",")
+}
+
+private func formatIdentifiers(_ identifiers: [UUID]) -> String {
+    identifiers.isEmpty ? "*" : identifiers.map(\.uuidString).joined(separator: ",")
 }
 
 private func formatAdvertisement(_ advertisement: [String: Any]) -> String {
@@ -347,12 +397,13 @@ private func formatAdvertisement(_ advertisement: [String: Any]) -> String {
 private func usage() -> String {
     """
     Usage:
-      BleProbe scan [--duration seconds] [--name-contains text] [--services uuid[,uuid]] [--connect] [--subscribe] [--allow-duplicates] [--output path]
-      BleProbe connected --services uuid[,uuid] [--name-contains text] [--connect] [--subscribe] [--output path]
+      BleProbe scan [--duration seconds] [--name-contains text] [--identifier uuid[,uuid]] [--services uuid[,uuid]] [--connect] [--subscribe] [--allow-duplicates] [--output path]
+      BleProbe connected [--services uuid[,uuid]] [--identifier uuid[,uuid]] [--name-contains text] [--connect] [--subscribe] [--output path]
 
     Examples:
       BleProbe scan --duration 20 --name-contains WH851
       BleProbe scan --duration 45 --name-contains WH851 --connect --subscribe
+      BleProbe connected --identifier E9E260D3-3FFE-E287-0EEE-7A8E175DE957 --connect --subscribe
       BleProbe connected --services 1812 --name-contains WH851 --connect --subscribe
     """
 }

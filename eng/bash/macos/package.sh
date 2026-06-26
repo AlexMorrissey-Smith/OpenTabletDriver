@@ -10,6 +10,16 @@ PKG_FILE="${OTD_NAME}-${OTD_VERSION}_${NET_RUNTIME}.tar.gz"
 
 pkg_root="${OUTPUT}/${OTD_NAME}.app"
 
+helper_source="${pkg_script_root}/../../../tools/macos/WH851BleBridge/Sources/WH851BleBridge/main.swift"
+if [ -f "${helper_source}" ] && hash swiftc 2>/dev/null; then
+  echo "Building WH851 CoreBluetooth bridge..."
+  swiftc \
+    "${helper_source}" \
+    -o "${OUTPUT}/OpenTabletDriver.WH851BleBridge" \
+    -framework Foundation \
+    -framework CoreBluetooth
+fi
+
 move_to_nested "${OUTPUT}" "${pkg_root}/Contents/MacOS"
 rm -rf "${pkg_root}/Contents/MacOS/OpenTabletDriver.UX.MacOS.app"
 

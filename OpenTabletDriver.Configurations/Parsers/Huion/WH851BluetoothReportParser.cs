@@ -6,12 +6,15 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
 {
     public class WH851BluetoothReportParser : IReportParser<IDeviceReport>
     {
-        private readonly InspiroyReportParser inspiroyReportParser = new();
-
         public IDeviceReport Parse(byte[] data)
         {
             if (data.Length >= 12 && data[0] == 0x08)
-                return inspiroyReportParser.Parse(data);
+            {
+                if (!data[1].IsBitSet(7))
+                    return new OutOfRangeReport(data);
+
+                return new WH851BluetoothPenReport(data);
+            }
 
             if (data.Length >= 10 && data[0] == 0x0a)
             {
@@ -30,16 +33,17 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
         public WH851BluetoothPenReport(byte[] report)
         {
             Raw = report;
+            var isOfficialBleReport = report[0] == 0x08 && report.Length >= 12;
             Position = new Vector2
             {
-                X = Unsafe.ReadUnaligned<ushort>(ref report[2]),
-                Y = Unsafe.ReadUnaligned<ushort>(ref report[4])
+                X = ReadCoordinate(report, 2, isOfficialBleReport ? 8 : -1),
+                Y = ReadCoordinate(report, 4, isOfficialBleReport ? 9 : -1)
             };
             Pressure = Unsafe.ReadUnaligned<ushort>(ref report[6]);
             Tilt = new Vector2
             {
-                X = (sbyte)report[8],
-                Y = (sbyte)report[9]
+                X = (sbyte)report[isOfficialBleReport ? 10 : 8],
+                Y = (sbyte)report[isOfficialBleReport ? 11 : 9]
             };
 
             PenButtons =
@@ -48,6 +52,12 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
                 report[1].IsBitSet(2)
             ];
             Eraser = report[1].IsBitSet(2);
+        }
+
+        private static int ReadCoordinate(byte[] report, int lowOffset, int highOffset)
+        {
+            var value = Unsafe.ReadUnaligned<ushort>(ref report[lowOffset]);
+            return highOffset >= 0 ? value | (report[highOffset] << 16) : value;
         }
 
         public byte[] Raw { get; set; }
