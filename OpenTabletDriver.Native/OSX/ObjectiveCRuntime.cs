@@ -13,6 +13,13 @@ namespace OpenTabletDriver.Native.OSX
         [DllImport(ObjCLibrary, EntryPoint = "objc_msgSend")]
         public static extern double objc_msgSend_double(IntPtr receiver, IntPtr selector);
 
+        [DllImport(ObjCLibrary, EntryPoint = "objc_msgSend")]
+        public static extern IntPtr objc_msgSend_IntPtr_int(IntPtr receiver, IntPtr selector, int arg);
+
+        [DllImport(ObjCLibrary, EntryPoint = "objc_msgSend")]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool objc_msgSend_bool_ulong(IntPtr receiver, IntPtr selector, ulong arg);
+
         [DllImport(ObjCLibrary, CharSet = CharSet.Ansi)]
         public static extern IntPtr sel_registerName(string name);
 
@@ -26,4 +33,3 @@ namespace OpenTabletDriver.Native.OSX
         public static extern void objc_autoreleasePoolPop(IntPtr pool);
     }
 }
-

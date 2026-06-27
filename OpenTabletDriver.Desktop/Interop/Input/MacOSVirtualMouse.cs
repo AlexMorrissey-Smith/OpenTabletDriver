@@ -52,6 +52,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
         private IntPtr _mouseEvent;
         private readonly double _doubleClickIntervalInMs;
         private readonly MacOSVirtualKeyboard _keyboard;
+        private readonly MacOSWindowActivator _windowActivator;
 
         public MacOSVirtualMouse()
         {
@@ -64,6 +65,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             _mouseEvent = CGEventCreate(_eventSource);
             _keyboard = DesktopInterop.VirtualKeyboard as MacOSVirtualKeyboard
                         ?? throw new InvalidOperationException("Could not get virtual keyboard");
+            _windowActivator = new MacOSWindowActivator();
         }
 
         public void MouseDown(MouseButton button)
@@ -247,6 +249,8 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                     {
                         SetPendingPosition(_mouseEvent, position.X, position.Y);
                     }
+                    if (currState)
+                        _windowActivator.ActivateAt(CGEventGetLocation(_mouseEvent));
                     CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventButtonNumber, i);
                     CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventClickState, _clickState); // clickState should be set to 1 (or more) during up, down, and drag events
                     ApplyTabletValues();
@@ -394,6 +398,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             {
                 CFRelease(_mouseEvent);
             }
+            _windowActivator?.Dispose();
         }
     }
 }

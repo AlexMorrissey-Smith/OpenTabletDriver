@@ -21,7 +21,10 @@ namespace OpenTabletDriver.Native.OSX
 
         private const string Quartz = "/System/Library/Frameworks/Quartz.framework/Versions/Current/Quartz";
         private const string Foundation = "/System/Library/Frameworks/Foundation.framework/Foundation";
+        private const string CoreFoundation = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
+        private const string ApplicationServices = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
         private const string AppKit = "/System/Library/Frameworks/AppKit.framework/AppKit";
+        private const uint CFStringEncodingUTF8 = 0x08000100;
 
         static OSX()
         {
@@ -31,6 +34,27 @@ namespace OpenTabletDriver.Native.OSX
 
         [DllImport(Foundation)]
         public static extern void CFRelease(IntPtr handle);
+
+        [DllImport(CoreFoundation)]
+        private static extern IntPtr CFStringCreateWithCString(IntPtr allocator, string value, uint encoding);
+
+        public static IntPtr CreateString(string value) =>
+            CFStringCreateWithCString(IntPtr.Zero, value, CFStringEncodingUTF8);
+
+        [DllImport(ApplicationServices)]
+        public static extern IntPtr AXUIElementCreateSystemWide();
+
+        [DllImport(ApplicationServices)]
+        public static extern int AXUIElementCopyElementAtPosition(IntPtr application, float x, float y, out IntPtr element);
+
+        [DllImport(ApplicationServices)]
+        public static extern int AXUIElementCopyAttributeValue(IntPtr element, IntPtr attribute, out IntPtr value);
+
+        [DllImport(ApplicationServices)]
+        public static extern int AXUIElementPerformAction(IntPtr element, IntPtr action);
+
+        [DllImport(ApplicationServices)]
+        public static extern int AXUIElementGetPid(IntPtr element, out int pid);
 
         [DllImport(Quartz)]
         public extern static CGEventRef CGEventCreate(CGEventSourceRef source);
