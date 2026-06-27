@@ -1,5 +1,6 @@
 using OpenTabletDriver.Configurations.Parsers.Huion;
 using OpenTabletDriver.Plugin.Tablet;
+using OpenTabletDriver.Plugin.Tablet.Wheel;
 using Xunit;
 
 namespace OpenTabletDriver.Tests
@@ -185,6 +186,54 @@ namespace OpenTabletDriver.Tests
 
             var tabletReport = Assert.IsType<WH851UsbPenReport>(report);
             Assert.Equal(256u, tabletReport.Pressure);
+        }
+
+        [Theory]
+        [InlineData(0x01, 1)]
+        [InlineData(0x02, -1)]
+        [InlineData(0x00, 0)]
+        public void UsbParserParsesWheelReports(byte wheelData, int expectedDelta)
+        {
+            var parser = new WH851UsbReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0xf1,
+                0x01, 0x01,
+                0x00, wheelData,
+                0x00, 0x00,
+                0x00, 0x00,
+                0x00,
+                0x00
+            ]);
+
+            var wheelReport = Assert.IsAssignableFrom<IRelativeWheelReport>(report);
+            Assert.Equal([expectedDelta], wheelReport.AnalogDeltas);
+        }
+
+        [Theory]
+        [InlineData(0x01, 1)]
+        [InlineData(0x02, -1)]
+        [InlineData(0x00, 0)]
+        public void BluetoothParserParsesOfficialBleWheelReports(byte wheelData, int expectedDelta)
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0xf1,
+                0x01, 0x01,
+                0x00, wheelData,
+                0x00, 0x00,
+                0x00, 0x00,
+                0x00,
+                0x00
+            ]);
+
+            var wheelReport = Assert.IsAssignableFrom<IRelativeWheelReport>(report);
+            Assert.Equal([expectedDelta], wheelReport.AnalogDeltas);
         }
 
         [Fact]

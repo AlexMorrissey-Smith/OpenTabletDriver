@@ -103,7 +103,11 @@ namespace OpenTabletDriver.Desktop.Binding
 
         public void Scroll()
         {
-            if (_direction == ScrollDirection.Vertical)
+            var direction = _direction == ScrollDirection.Switchable
+                ? MouseScrollDirectionSwitchBinding.CurrentDirection
+                : _direction;
+
+            if (direction == ScrollDirection.Vertical)
                 Pointer?.ScrollVertically(-Amount);
             else
                 Pointer?.ScrollHorizontally(-Amount);

@@ -17,6 +17,9 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
         {
             if (data.Length >= 12 && data[0] == 0x08)
             {
+                if (data[1] == 0xf1)
+                    return new InspiroyRelWheelReport(data);
+
                 if (data[1] == 0xe0 || data[1] == 0xe3)
                     return new UCLogicAuxReport(data);
 
@@ -28,6 +31,9 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
 
             if (data.Length >= 10 && data[0] == 0x0a)
             {
+                if (data[1] == 0xf1)
+                    return new InspiroyRelWheelReport(data);
+
                 if (!data[1].IsBitSet(6))
                     return new OutOfRangeReport(data);
 
