@@ -21,7 +21,7 @@ using OpenTabletDriver.UX.Controls;
 
 namespace OpenTabletDriver.UX
 {
-    public class MainForm : DesktopForm
+    public partial class MainForm : DesktopForm
     {
         public MainForm()
         {
@@ -105,6 +105,9 @@ namespace OpenTabletDriver.UX
 
         private const int DEFAULT_CLIENT_WIDTH = 960;
         private const int DEFAULT_CLIENT_HEIGHT = 760;
+
+        [GeneratedRegex(@"[^\w.-]+")]
+        private static partial Regex BackupFileNameUnsafeChars();
 
         private readonly MenuBar fullMenu;
         private readonly Placeholder placeholder = new()
@@ -200,6 +203,12 @@ namespace OpenTabletDriver.UX
                     App.DaemonWatchdog = null;
                 };
             }
+
+            this.Closing += (sender, e) =>
+            {
+                App.Current.SettingsAutosave?.Dispose();
+                App.Current.SettingsAutosave = null;
+            };
         }
 
         private static void StartDaemonWatchdog()
@@ -256,8 +265,8 @@ namespace OpenTabletDriver.UX
             var loadSettings = new Command { MenuText = "Load settings...", Shortcut = Application.Instance.CommonModifier | Keys.O };
             loadSettings.Executed += async (sender, e) => await LoadSettingsDialog();
 
-            var saveSettingsAs = new Command { MenuText = "Save settings as...", Shortcut = Application.Instance.CommonModifier | Keys.Shift | Keys.S };
-            saveSettingsAs.Executed += async (sender, e) => await SaveSettingsDialog();
+            var exportSettingsBackup = new Command { MenuText = "Export settings backup...", Shortcut = Application.Instance.CommonModifier | Keys.Shift | Keys.S };
+            exportSettingsBackup.Executed += async (sender, e) => await ExportSettingsBackupDialog();
 
             var saveSettings = new Command { MenuText = "Save settings", Shortcut = Application.Instance.CommonModifier | Keys.S };
             saveSettings.Executed += async (sender, e) => await SaveSettings();
@@ -310,7 +319,7 @@ namespace OpenTabletDriver.UX
                         {
                             loadSettings,
                             saveSettings,
-                            saveSettingsAs,
+                            exportSettingsBackup,
                             resetSettings,
                             applySettings,
                             new SeparatorMenuItem(),
@@ -426,6 +435,11 @@ namespace OpenTabletDriver.UX
 
             // Synchronize settings
             await SyncSettings();
+            App.Current.SettingsAutosave = new SettingsAutosaveService(
+                () => new FileInfo(AppInfo.Current.SettingsFile),
+                ApplySettingsCore
+            );
+            App.Current.SettingsAutosave.Track(App.Current.Settings, false);
             App.Driver.Resynchronize += async (sender, e) => await SyncSettings();
 
             // Set window content
@@ -514,7 +528,7 @@ namespace OpenTabletDriver.UX
                         if (Settings.TryDeserialize(file, out var settings))
                         {
                             App.Current.Settings = settings;
-                            await App.Driver.Instance!.SetSettings(settings);
+                            await ApplySettingsCore(settings);
                         }
                         else
                         {
@@ -528,13 +542,14 @@ namespace OpenTabletDriver.UX
             }
         }
 
-        private async Task SaveSettingsDialog()
+        private async Task ExportSettingsBackupDialog()
         {
+            var initialFileName = await GetBackupFileName();
             var fileDialog = Extensions.SaveFileDialog(
-                "Save OpenTabletDriver settings...",
+                "Export OpenTabletDriver settings backup...",
                 Eto.EtoEnvironment.GetFolderPath(Eto.EtoSpecialFolder.Documents),
                 [new FileFilter("OpenTabletDriver Settings (*.json)", ".json")],
-                "opentabletdriver-settings.json"
+                initialFileName
             );
 
             switch (fileDialog.ShowDialog(this))
@@ -545,10 +560,25 @@ namespace OpenTabletDriver.UX
                     if (App.Current.Settings is Settings settings)
                     {
                         settings.Serialize(file);
-                        await ApplySettings();
                     }
                     break;
             }
+        }
+
+        private static async Task<string> GetBackupFileName()
+        {
+            var tabletName = App.Current.Settings.Profiles.FirstOrDefault()?.Tablet ?? "settings";
+            if (App.Driver.IsConnected)
+            {
+                var tablets = await App.Driver.Instance.GetTablets();
+                tabletName = tablets.FirstOrDefault()?.Properties.Name ?? tabletName;
+            }
+
+            var safeTabletName = BackupFileNameUnsafeChars().Replace(tabletName, "-").Trim('-');
+            if (string.IsNullOrWhiteSpace(safeTabletName))
+                safeTabletName = "settings";
+
+            return $"opentabletdriver-settings-{safeTabletName}-{DateTime.Now:yyyyMMdd-HHmmss}.json";
         }
 
         private async Task SaveSettings()
@@ -571,9 +601,14 @@ namespace OpenTabletDriver.UX
                         return;
                 }
 
-                var appInfo = await App.Driver.Instance.GetApplicationInfo();
-                settings.Serialize(new FileInfo(appInfo.SettingsFile));
-                await ApplySettings();
+                if (App.Current.SettingsAutosave != null)
+                    await App.Current.SettingsAutosave.FlushNow();
+                else
+                {
+                    var appInfo = await App.Driver.Instance.GetApplicationInfo();
+                    settings.Serialize(new FileInfo(appInfo.SettingsFile));
+                    await ApplySettingsCore(settings);
+                }
             }
         }
 
@@ -607,10 +642,21 @@ namespace OpenTabletDriver.UX
 
             Debug.Assert(App.Driver.IsConnected, "Apply should be disabled when no driver is connected");
 
+            if (App.Current.SettingsAutosave != null)
+            {
+                await App.Current.SettingsAutosave.FlushNow();
+                return;
+            }
+
+            if (App.Current.Settings is Settings settings)
+                await ApplySettingsCore(settings);
+        }
+
+        private static async Task ApplySettingsCore(Settings settings)
+        {
             try
             {
-                if (App.Current.Settings is Settings settings)
-                    await App.Driver.Instance.SetSettings(settings);
+                await App.Driver.Instance!.SetSettings(settings);
             }
             catch (StreamJsonRpc.RemoteInvocationException riex) when (riex.ErrorData is JObject err)
             {

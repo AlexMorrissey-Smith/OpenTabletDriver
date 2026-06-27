@@ -151,9 +151,15 @@ namespace OpenTabletDriver.UX
         private Settings? settings;
         public Settings Settings
         {
-            set => this.RaiseAndSetIfChanged(ref this.settings!, value);
+            set
+            {
+                this.RaiseAndSetIfChanged(ref this.settings!, value);
+                SettingsAutosave?.Track(value, true);
+            }
             get => this.settings ?? throw new InvalidOperationException("Settings cannot be null");
         }
+
+        public SettingsAutosaveService? SettingsAutosave { get; set; }
 
         private const string APPNAME = "OpenTabletDriver.UX";
         public readonly static bool EnableTrayIcon = (PluginPlatform.Windows | PluginPlatform.MacOS).HasFlag(SystemInterop.CurrentPlatform);

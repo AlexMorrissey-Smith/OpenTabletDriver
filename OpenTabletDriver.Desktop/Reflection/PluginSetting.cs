@@ -8,8 +8,11 @@ using OpenTabletDriver.Plugin.Attributes;
 
 namespace OpenTabletDriver.Desktop.Reflection
 {
-    public class PluginSetting
+    public class PluginSetting : ViewModel
     {
+        private string property = string.Empty;
+        private JToken? value;
+
         [JsonConstructor, SetsRequiredMembers]
         public PluginSetting(string property, object? value)
         {
@@ -24,10 +27,18 @@ namespace OpenTabletDriver.Desktop.Reflection
         }
 
         [JsonProperty]
-        public required string Property { set; get; }
+        public required string Property
+        {
+            set => RaiseAndSetIfChanged(ref property, value);
+            get => property;
+        }
 
         [JsonProperty]
-        public JToken? Value { set; get; }
+        public JToken? Value
+        {
+            set => RaiseAndSetIfChanged(ref this.value, value);
+            get => this.value;
+        }
 
         [JsonIgnore]
         public bool HasValue => Value != null && Value.Type != JTokenType.Null;

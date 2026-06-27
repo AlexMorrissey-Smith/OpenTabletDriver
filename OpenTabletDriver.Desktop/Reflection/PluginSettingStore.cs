@@ -9,9 +9,12 @@ using OpenTabletDriver.Plugin.Tablet;
 
 namespace OpenTabletDriver.Desktop.Reflection
 {
-    public class PluginSettingStore
+    public class PluginSettingStore : ViewModel
     {
         private static readonly Type _tabletRefType = typeof(TabletReference);
+        private string path = string.Empty;
+        private ObservableCollection<PluginSetting> settings = [];
+        private bool enable;
 
         public PluginSettingStore(Type type, bool enable = true)
         {
@@ -44,14 +47,29 @@ namespace OpenTabletDriver.Desktop.Reflection
             Settings = settings;
         }
 
-        public string Path { set; get; }
+        [JsonProperty(nameof(Path))]
+        public string Path
+        {
+            set => RaiseAndSetIfChanged(ref path, value);
+            get => path;
+        }
 
         [JsonIgnore]
         public string? Name => AppInfo.PluginManager.GetFriendlyName(Path);
 
-        public ObservableCollection<PluginSetting> Settings { set; get; }
+        [JsonProperty(nameof(Settings))]
+        public ObservableCollection<PluginSetting> Settings
+        {
+            set => RaiseAndSetIfChanged(ref settings, value);
+            get => settings;
+        }
 
-        public bool Enable { set; get; }
+        [JsonProperty(nameof(Enable))]
+        public bool Enable
+        {
+            set => RaiseAndSetIfChanged(ref enable, value);
+            get => enable;
+        }
 
         public T? Construct<T>(TabletReference? tabletReference = null, bool trigger = true) where T : class
         {
