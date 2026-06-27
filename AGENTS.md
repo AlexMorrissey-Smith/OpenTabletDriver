@@ -58,3 +58,8 @@ Example — destructive op:
 > ```
 >
 > Caveman resume. Verify backup exist first.
+
+## Build and Codesign
+
+Run this to build and codesign the app to the `dist` folder:
+`./build.sh -o dist macos-signed`
