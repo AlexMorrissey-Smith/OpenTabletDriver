@@ -12,11 +12,10 @@ namespace OpenTabletDriver.Desktop.Interop.Input
         private const int AXSuccess = 0;
         private const ulong NSApplicationActivateAllWindows = 1UL << 0;
 
-        private readonly IntPtr _axWindowAttribute = CreateString("AXWindow");
-        private readonly IntPtr _axRaiseAction = CreateString("AXRaise");
         private readonly IntPtr _runningApplicationClass = objc_getClass("NSRunningApplication");
         private readonly IntPtr _runningApplicationWithPidSelector = sel_registerName("runningApplicationWithProcessIdentifier:");
         private readonly IntPtr _activateWithOptionsSelector = sel_registerName("activateWithOptions:");
+        private int _activationInProgress;
         private int _disposed;
 
         public void ActivateAt(CGPoint location)
@@ -24,12 +23,42 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             if (Volatile.Read(ref _disposed) != 0)
                 return;
 
+            if (Interlocked.CompareExchange(ref _activationInProgress, 1, 0) != 0)
+                return;
+
+            if (!ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var pool = objc_autoreleasePoolPush();
+                try
+                {
+                    ActivateAtCore(location);
+                }
+                finally
+                {
+                    objc_autoreleasePoolPop(pool);
+                    Volatile.Write(ref _activationInProgress, 0);
+                }
+            }))
+            {
+                Volatile.Write(ref _activationInProgress, 0);
+            }
+        }
+
+        private void ActivateAtCore(CGPoint location)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+
+            IntPtr axWindowAttribute = IntPtr.Zero;
+            IntPtr axRaiseAction = IntPtr.Zero;
             IntPtr systemWideElement = IntPtr.Zero;
             IntPtr hitElement = IntPtr.Zero;
             IntPtr windowElement = IntPtr.Zero;
 
             try
             {
+                axWindowAttribute = CreateString("AXWindow");
+                axRaiseAction = CreateString("AXRaise");
                 systemWideElement = AXUIElementCreateSystemWide();
                 if (systemWideElement == IntPtr.Zero)
                     return;
@@ -38,10 +67,10 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                     return;
 
                 var targetElement = hitElement;
-                if (AXUIElementCopyAttributeValue(hitElement, _axWindowAttribute, out windowElement) == AXSuccess && windowElement != IntPtr.Zero)
+                if (AXUIElementCopyAttributeValue(hitElement, axWindowAttribute, out windowElement) == AXSuccess && windowElement != IntPtr.Zero)
                     targetElement = windowElement;
 
-                _ = AXUIElementPerformAction(targetElement, _axRaiseAction);
+                _ = AXUIElementPerformAction(targetElement, axRaiseAction);
 
                 if (TryGetPid(targetElement, out var pid) || targetElement != hitElement && TryGetPid(hitElement, out pid))
                     ActivateApplication(pid);
@@ -51,6 +80,10 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             }
             finally
             {
+                if (axRaiseAction != IntPtr.Zero)
+                    CFRelease(axRaiseAction);
+                if (axWindowAttribute != IntPtr.Zero)
+                    CFRelease(axWindowAttribute);
                 if (windowElement != IntPtr.Zero)
                     CFRelease(windowElement);
                 if (hitElement != IntPtr.Zero)
@@ -83,11 +116,6 @@ namespace OpenTabletDriver.Desktop.Interop.Input
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
-
-            if (_axWindowAttribute != IntPtr.Zero)
-                CFRelease(_axWindowAttribute);
-            if (_axRaiseAction != IntPtr.Zero)
-                CFRelease(_axRaiseAction);
         }
     }
 }
