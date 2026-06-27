@@ -24,6 +24,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
         private const int MaxX = 40640;
         private const int MaxY = 25400;
         private const int MaxPressure = 16383;
+        private const long OpenTabletDriverSyntheticDeviceId = 5303613955435230461;
         private static int accessStateLogged;
         private static readonly ConcurrentDictionary<string, byte> loggedDevices = new();
 
@@ -614,6 +615,8 @@ namespace OpenTabletDriver.Devices.MacOSHid
 
             private int OpenBluetoothEventTap()
             {
+                // Native WH851 events can arrive as tablet-subtyped mouse events. Keep them in the
+                // mask so they can be suppressed, but allow OTD's marked synthetic events below.
                 var mask = CoreGraphics.Mask(
                     CoreGraphics.kCGEventMouseMoved,
                     CoreGraphics.kCGEventLeftMouseDragged,
@@ -625,7 +628,6 @@ namespace OpenTabletDriver.Devices.MacOSHid
                     CoreGraphics.kCGEventRightMouseUp,
                     CoreGraphics.kCGEventOtherMouseDown,
                     CoreGraphics.kCGEventOtherMouseUp,
-                    CoreGraphics.kCGEventScrollWheel,
                     CoreGraphics.kCGEventTabletPointer,
                     CoreGraphics.kCGEventTabletProximity
                 );
@@ -724,6 +726,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
                 var tiltX = CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventTiltX);
                 var tiltY = CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventTiltY);
                 var deviceId = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventDeviceID);
+                var eventSourceUserData = GetEventSourceUserData(eventRef);
                 var hasUsableTabletPointFields = x != 0 || y != 0 || buttons != 0 || pressure != 0 || tiltX != 0 || tiltY != 0;
                 var tabletPoint = type == CoreGraphics.kCGEventTabletPointer
                     || subtype == CoreGraphics.kCGEventMouseSubtypeTabletPoint;
@@ -738,6 +741,9 @@ namespace OpenTabletDriver.Devices.MacOSHid
                 }
 
                 if (!tabletPoint && !tabletProximity)
+                    return eventRef;
+
+                if (IsOpenTabletDriverSyntheticEvent(deviceId, eventSourceUserData))
                     return eventRef;
 
                 if (Volatile.Read(ref stream.usingCoreBluetoothBridge) != 0)
@@ -765,6 +771,25 @@ namespace OpenTabletDriver.Devices.MacOSHid
                     stream.EnqueueTabletPoint(eventRef);
 
                 return IntPtr.Zero;
+            }
+
+            private static bool IsOpenTabletDriverSyntheticEvent(long deviceId, long eventSourceUserData) =>
+                deviceId == OpenTabletDriverSyntheticDeviceId || eventSourceUserData == OpenTabletDriverSyntheticDeviceId;
+
+            private static long GetEventSourceUserData(IntPtr eventRef)
+            {
+                var source = CoreGraphics.CGEventCreateSourceFromEvent(eventRef);
+                if (source == IntPtr.Zero)
+                    return 0;
+
+                try
+                {
+                    return CoreGraphics.CGEventSourceGetUserData(source);
+                }
+                finally
+                {
+                    IOHID.CFRelease(source);
+                }
             }
 
             private void EnqueueTabletPoint(IntPtr eventRef)

@@ -66,6 +66,12 @@ namespace OpenTabletDriver.Devices.MacOSHid
         public static extern IntPtr CGEventTapCreate(uint tap, uint place, uint options, ulong eventsOfInterest, CGEventTapCallBack callback, IntPtr userInfo);
 
         [DllImport(CoreGraphicsLibrary)]
+        public static extern IntPtr CGEventCreateSourceFromEvent(IntPtr eventRef);
+
+        [DllImport(CoreGraphicsLibrary)]
+        public static extern long CGEventSourceGetUserData(IntPtr source);
+
+        [DllImport(CoreGraphicsLibrary)]
         public static extern void CGEventTapEnable(IntPtr tap, bool enable);
 
         [DllImport(CoreGraphicsLibrary)]

@@ -30,16 +30,21 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
 
     public struct WH851BluetoothPenReport : ITabletReport, ITiltReport, IEraserReport
     {
+        private const uint MinimumTouchPressure = 256;
+
         public WH851BluetoothPenReport(byte[] report)
         {
             Raw = report;
             var isOfficialBleReport = report[0] == 0x08 && report.Length >= 12;
+            var touching = isOfficialBleReport && report[1].IsBitSet(0);
             Position = new Vector2
             {
                 X = ReadCoordinate(report, 2, isOfficialBleReport ? 8 : -1),
                 Y = ReadCoordinate(report, 4, isOfficialBleReport ? 9 : -1)
             };
             Pressure = Unsafe.ReadUnaligned<ushort>(ref report[6]);
+            if (touching && Pressure < MinimumTouchPressure)
+                Pressure = MinimumTouchPressure;
             Tilt = new Vector2
             {
                 X = (sbyte)report[isOfficialBleReport ? 10 : 8],
@@ -51,7 +56,7 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
                 report[1].IsBitSet(1),
                 report[1].IsBitSet(2)
             ];
-            Eraser = report[1].IsBitSet(2);
+            Eraser = !isOfficialBleReport && report[1].IsBitSet(2);
         }
 
         private static int ReadCoordinate(byte[] report, int lowOffset, int highOffset)

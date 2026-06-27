@@ -67,6 +67,9 @@ namespace OpenTabletDriver.Native.OSX
         public extern static CGEventSourceRef CGEventSourceCreate(int stateID);
 
         [DllImport(Quartz)]
+        public extern static void CGEventSourceSetUserData(CGEventSourceRef source, long userData);
+
+        [DllImport(Quartz)]
         public extern static ulong CGEventSourceFlagsState(int stateID);
 
         [DllImport(Quartz, EntryPoint = "CGEventPost")]

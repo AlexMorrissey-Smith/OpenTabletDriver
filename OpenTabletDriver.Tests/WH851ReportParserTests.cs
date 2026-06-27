@@ -99,6 +99,99 @@ namespace OpenTabletDriver.Tests
         }
 
         [Fact]
+        public void BluetoothParserKeepsOfficialBleHoverPressureAtZero()
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x80,
+                0x34, 0x12,
+                0x78, 0x56,
+                0x00, 0x00,
+                0x01, 0x02,
+                0x00,
+                0x00
+            ]);
+
+            var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
+            Assert.Equal(0u, tabletReport.Pressure);
+        }
+
+        [Fact]
+        public void BluetoothParserAppliesMinimumPressureForOfficialBleContact()
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x81,
+                0x34, 0x12,
+                0x78, 0x56,
+                0x00, 0x00,
+                0x01, 0x02,
+                0x00,
+                0x00
+            ]);
+
+            var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
+            Assert.Equal(256u, tabletReport.Pressure);
+        }
+
+        [Fact]
+        public void BluetoothParserDoesNotTreatOfficialBleSecondBarrelButtonAsEraser()
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x85,
+                0x88, 0x6d,
+                0x2c, 0x24,
+                0x8b, 0x06,
+                0x00, 0x00,
+                0x11,
+                0xf3
+            ]);
+
+            var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
+            Assert.Equal(0x068bu, tabletReport.Pressure);
+            Assert.False(tabletReport.PenButtons[0]);
+            Assert.True(tabletReport.PenButtons[1]);
+            Assert.False(tabletReport.Eraser);
+        }
+
+        [Theory]
+        [InlineData(0x82, false, true, false, false)]
+        [InlineData(0x84, false, false, true, false)]
+        [InlineData(0x85, true, false, true, false)]
+        public void BluetoothParserParsesOfficialBlePenButtonStatus(byte status, bool touching, bool button1, bool button2, bool eraser)
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                status,
+                0x88, 0x6d,
+                0x2c, 0x24,
+                0x00, 0x00,
+                0x00, 0x00,
+                0x11,
+                0xf3
+            ]);
+
+            var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
+            Assert.Equal(touching ? 256u : 0u, tabletReport.Pressure);
+            Assert.Equal(button1, tabletReport.PenButtons[0]);
+            Assert.Equal(button2, tabletReport.PenButtons[1]);
+            Assert.Equal(eraser, tabletReport.Eraser);
+        }
+
+        [Fact]
         public void BluetoothParserPreservesUnknownReports()
         {
             var parser = new WH851BluetoothReportParser();
