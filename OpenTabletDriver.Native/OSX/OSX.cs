@@ -18,43 +18,20 @@ namespace OpenTabletDriver.Native.OSX
     {
         public const int CGEventSourceStateHIDSystemState = 1;
         public const int CGEventSourceStatePrivate = -1;
+        public const uint CGWindowListOptionOnScreenOnly = 1;
+        public const uint CGWindowListExcludeDesktopElements = 16;
+        public const uint CGNullWindowID = 0;
 
         private const string Quartz = "/System/Library/Frameworks/Quartz.framework/Versions/Current/Quartz";
-        private const string Foundation = "/System/Library/Frameworks/Foundation.framework/Foundation";
-        private const string CoreFoundation = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
         private const string ApplicationServices = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
         private const string AppKit = "/System/Library/Frameworks/AppKit.framework/AppKit";
-        private const uint CFStringEncodingUTF8 = 0x08000100;
 
         static OSX()
         {
             LibSystem.dlopen(AppKit, 0);
         }
 
-
-        [DllImport(Foundation)]
-        public static extern void CFRelease(IntPtr handle);
-
-        [DllImport(CoreFoundation)]
-        private static extern IntPtr CFStringCreateWithCString(IntPtr allocator, string value, uint encoding);
-
-        public static IntPtr CreateString(string value) =>
-            CFStringCreateWithCString(IntPtr.Zero, value, CFStringEncodingUTF8);
-
-        [DllImport(ApplicationServices)]
-        public static extern IntPtr AXUIElementCreateSystemWide();
-
-        [DllImport(ApplicationServices)]
-        public static extern int AXUIElementCopyElementAtPosition(IntPtr application, float x, float y, out IntPtr element);
-
-        [DllImport(ApplicationServices)]
-        public static extern int AXUIElementCopyAttributeValue(IntPtr element, IntPtr attribute, out IntPtr value);
-
-        [DllImport(ApplicationServices)]
-        public static extern int AXUIElementPerformAction(IntPtr element, IntPtr action);
-
-        [DllImport(ApplicationServices)]
-        public static extern int AXUIElementGetPid(IntPtr element, out int pid);
+        public static void CFRelease(IntPtr handle) => CoreFoundation.CFRelease(handle);
 
         [DllImport(Quartz)]
         public extern static CGEventRef CGEventCreate(CGEventSourceRef source);
@@ -95,6 +72,24 @@ namespace OpenTabletDriver.Native.OSX
 
         [DllImport(Quartz)]
         public extern static ulong CGEventSourceFlagsState(int stateID);
+
+        [DllImport(Quartz)]
+        public extern static IntPtr CGWindowListCopyWindowInfo(uint option, uint relativeToWindow);
+
+        [DllImport(ApplicationServices)]
+        public static extern IntPtr AXUIElementCreateSystemWide();
+
+        [DllImport(ApplicationServices)]
+        public static extern int AXUIElementCopyElementAtPosition(IntPtr application, float x, float y, out IntPtr element);
+
+        [DllImport(ApplicationServices)]
+        public static extern int AXUIElementCopyAttributeValue(IntPtr element, IntPtr attribute, out IntPtr value);
+
+        [DllImport(ApplicationServices)]
+        public static extern int AXUIElementPerformAction(IntPtr element, IntPtr action);
+
+        [DllImport(ApplicationServices)]
+        public static extern int AXUIElementGetPid(IntPtr element, out int pid);
 
         [DllImport(Quartz, EntryPoint = "CGEventPost")]
         private extern static void _CGEventPost(CGEventTapLocation tap, CGEventRef eventRef);

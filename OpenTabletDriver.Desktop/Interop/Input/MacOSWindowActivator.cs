@@ -1,105 +1,324 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using OpenTabletDriver.Native.OSX;
+using OpenTabletDriver.Native.OSX.Generic;
 
 namespace OpenTabletDriver.Desktop.Interop.Input
 {
+    using static CoreFoundation;
     using static ObjectiveCRuntime;
     using static OSX;
 
     internal sealed class MacOSWindowActivator : IDisposable
     {
         private const int AXSuccess = 0;
+        private const uint WindowListOptions = CGWindowListOptionOnScreenOnly | CGWindowListExcludeDesktopElements;
+        private const int TargetCacheMaxAgeInMs = 2000;
+        private const int TargetUpdateThrottleInMs = 50;
+        private const double TargetCacheTolerance = 96;
         private const ulong NSApplicationActivateAllWindows = 1UL << 0;
+        private const ulong NSApplicationActivateIgnoringOtherApps = 1UL << 1;
 
         private readonly IntPtr _runningApplicationClass = objc_getClass("NSRunningApplication");
         private readonly IntPtr _runningApplicationWithPidSelector = sel_registerName("runningApplicationWithProcessIdentifier:");
         private readonly IntPtr _activateWithOptionsSelector = sel_registerName("activateWithOptions:");
+        private readonly IntPtr _axRaiseAction = CreateString("AXRaise");
+        private readonly object _cacheLock = new();
+        private CGPoint _cachedLocation;
+        private IntPtr _cachedWindowElement;
+        private int _cachedPid;
+        private long _cachedTimestamp;
+        private long _lastUpdateQueuedTimestamp;
+        private int _updateInProgress;
         private int _activationInProgress;
         private int _disposed;
+
+        public void QueueTargetUpdate(CGPoint location)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+
+            var now = Stopwatch.GetTimestamp();
+            var lastUpdateQueuedTimestamp = Volatile.Read(ref _lastUpdateQueuedTimestamp);
+            if (lastUpdateQueuedTimestamp != 0 && ElapsedMilliseconds(lastUpdateQueuedTimestamp, now) < TargetUpdateThrottleInMs)
+                return;
+
+            if (Interlocked.CompareExchange(ref _updateInProgress, 1, 0) != 0)
+                return;
+
+            Volatile.Write(ref _lastUpdateQueuedTimestamp, now);
+            if (!ThreadPool.QueueUserWorkItem(_ => UpdateTargetCore(location)))
+                Volatile.Write(ref _updateInProgress, 0);
+        }
 
         public void ActivateAt(CGPoint location)
         {
             if (Volatile.Read(ref _disposed) != 0)
                 return;
 
+            try
+            {
+                if (TryGetCachedTarget(location, out var pid, out var windowElement))
+                    QueueActivateTarget(pid, windowElement);
+                else
+                    QueueTargetUpdate(location);
+            }
+            catch
+            {
+            }
+        }
+
+        private void QueueActivateTarget(int pid, IntPtr windowElement)
+        {
             if (Interlocked.CompareExchange(ref _activationInProgress, 1, 0) != 0)
+            {
+                if (windowElement != IntPtr.Zero)
+                    CoreFoundation.CFRelease(windowElement);
                 return;
+            }
 
             if (!ThreadPool.QueueUserWorkItem(_ =>
             {
                 var pool = objc_autoreleasePoolPush();
                 try
                 {
-                    ActivateAtCore(location);
+                    ActivateTarget(pid, windowElement);
+                }
+                catch
+                {
                 }
                 finally
                 {
+                    if (windowElement != IntPtr.Zero)
+                        CoreFoundation.CFRelease(windowElement);
                     objc_autoreleasePoolPop(pool);
                     Volatile.Write(ref _activationInProgress, 0);
                 }
             }))
             {
+                if (windowElement != IntPtr.Zero)
+                    CoreFoundation.CFRelease(windowElement);
                 Volatile.Write(ref _activationInProgress, 0);
             }
         }
 
-        private void ActivateAtCore(CGPoint location)
+        private void UpdateTargetCore(CGPoint location)
         {
-            if (Volatile.Read(ref _disposed) != 0)
-                return;
-
-            IntPtr axWindowAttribute = IntPtr.Zero;
-            IntPtr axRaiseAction = IntPtr.Zero;
-            IntPtr systemWideElement = IntPtr.Zero;
-            IntPtr hitElement = IntPtr.Zero;
-            IntPtr windowElement = IntPtr.Zero;
-
+            var pool = objc_autoreleasePoolPush();
+            var pid = 0;
+            var windowElement = IntPtr.Zero;
             try
             {
-                axWindowAttribute = CreateString("AXWindow");
-                axRaiseAction = CreateString("AXRaise");
-                systemWideElement = AXUIElementCreateSystemWide();
-                if (systemWideElement == IntPtr.Zero)
+                if (!TryGetAccessibilityTargetAt(location, out pid, out windowElement))
+                    _ = TryGetWindowOwnerAt(location, out pid);
+
+                if (Volatile.Read(ref _disposed) != 0)
                     return;
 
-                if (AXUIElementCopyElementAtPosition(systemWideElement, (float)location.x, (float)location.y, out hitElement) != AXSuccess || hitElement == IntPtr.Zero)
-                    return;
+                lock (_cacheLock)
+                {
+                    if (_cachedWindowElement != IntPtr.Zero)
+                        CoreFoundation.CFRelease(_cachedWindowElement);
 
-                var targetElement = hitElement;
-                if (AXUIElementCopyAttributeValue(hitElement, axWindowAttribute, out windowElement) == AXSuccess && windowElement != IntPtr.Zero)
-                    targetElement = windowElement;
-
-                _ = AXUIElementPerformAction(targetElement, axRaiseAction);
-
-                if (TryGetPid(targetElement, out var pid) || targetElement != hitElement && TryGetPid(hitElement, out pid))
-                    ActivateApplication(pid);
+                    _cachedLocation = location;
+                    _cachedWindowElement = windowElement;
+                    windowElement = IntPtr.Zero;
+                    _cachedPid = pid;
+                    _cachedTimestamp = Stopwatch.GetTimestamp();
+                }
             }
             catch
             {
             }
             finally
             {
-                if (axRaiseAction != IntPtr.Zero)
-                    CFRelease(axRaiseAction);
-                if (axWindowAttribute != IntPtr.Zero)
-                    CFRelease(axWindowAttribute);
                 if (windowElement != IntPtr.Zero)
-                    CFRelease(windowElement);
+                    CoreFoundation.CFRelease(windowElement);
+                objc_autoreleasePoolPop(pool);
+                Volatile.Write(ref _updateInProgress, 0);
+            }
+        }
+
+        private bool TryGetCachedTarget(CGPoint location, out int pid, out IntPtr windowElement)
+        {
+            pid = 0;
+            windowElement = IntPtr.Zero;
+
+            lock (_cacheLock)
+            {
+                if (_cachedPid <= 0)
+                    return false;
+
+                if (ElapsedMilliseconds(_cachedTimestamp, Stopwatch.GetTimestamp()) > TargetCacheMaxAgeInMs)
+                    return false;
+
+                var dx = _cachedLocation.x - location.x;
+                var dy = _cachedLocation.y - location.y;
+                if (dx * dx + dy * dy > TargetCacheTolerance * TargetCacheTolerance)
+                    return false;
+
+                pid = _cachedPid;
+                if (_cachedWindowElement != IntPtr.Zero)
+                    windowElement = CoreFoundation.CFRetain(_cachedWindowElement);
+                return true;
+            }
+        }
+
+        private static bool TryGetAccessibilityTargetAt(CGPoint location, out int pid, out IntPtr windowElement)
+        {
+            pid = 0;
+            windowElement = IntPtr.Zero;
+
+            var axWindowAttribute = CreateString("AXWindow");
+            var systemWideElement = IntPtr.Zero;
+            var hitElement = IntPtr.Zero;
+            var targetElement = IntPtr.Zero;
+
+            try
+            {
+                systemWideElement = AXUIElementCreateSystemWide();
+                if (systemWideElement == IntPtr.Zero)
+                    return false;
+
+                if (AXUIElementCopyElementAtPosition(systemWideElement, (float)location.x, (float)location.y, out hitElement) != AXSuccess || hitElement == IntPtr.Zero)
+                    return false;
+
+                if (AXUIElementCopyAttributeValue(hitElement, axWindowAttribute, out targetElement) != AXSuccess || targetElement == IntPtr.Zero)
+                    targetElement = CoreFoundation.CFRetain(hitElement);
+
+                if (!TryGetPid(targetElement, out pid) && !TryGetPid(hitElement, out pid))
+                    return false;
+
+                windowElement = targetElement;
+                targetElement = IntPtr.Zero;
+                return pid > 0;
+            }
+            finally
+            {
+                if (targetElement != IntPtr.Zero)
+                    CoreFoundation.CFRelease(targetElement);
                 if (hitElement != IntPtr.Zero)
-                    CFRelease(hitElement);
+                    CoreFoundation.CFRelease(hitElement);
                 if (systemWideElement != IntPtr.Zero)
-                    CFRelease(systemWideElement);
+                    CoreFoundation.CFRelease(systemWideElement);
+                CoreFoundation.CFRelease(axWindowAttribute);
             }
         }
 
         private static bool TryGetPid(IntPtr element, out int pid)
         {
-            if (AXUIElementGetPid(element, out pid) == AXSuccess && pid > 0)
+            if (element != IntPtr.Zero && AXUIElementGetPid(element, out pid) == AXSuccess && pid > 0)
                 return true;
 
             pid = 0;
             return false;
+        }
+
+        private static bool TryGetWindowOwnerAt(CGPoint location, out int pid)
+        {
+            pid = 0;
+
+            var windowList = CGWindowListCopyWindowInfo(WindowListOptions, CGNullWindowID);
+            if (windowList == IntPtr.Zero)
+                return false;
+
+            var ownerPidKey = CreateString("kCGWindowOwnerPID");
+            var layerKey = CreateString("kCGWindowLayer");
+            var boundsKey = CreateString("kCGWindowBounds");
+
+            try
+            {
+                var count = CFArrayGetCount(windowList);
+                for (long i = 0; i < count; i++)
+                {
+                    var window = CFArrayGetValueAtIndex(windowList, i);
+                    if (window == IntPtr.Zero)
+                        continue;
+
+                    if (!TryGetInt(window, layerKey, out var layer) || layer != 0)
+                        continue;
+
+                    if (!TryGetBounds(window, boundsKey, out var bounds) || !Contains(bounds, location))
+                        continue;
+
+                    return TryGetInt(window, ownerPidKey, out pid) && pid > 0;
+                }
+
+                return false;
+            }
+            finally
+            {
+                CoreFoundation.CFRelease(boundsKey);
+                CoreFoundation.CFRelease(layerKey);
+                CoreFoundation.CFRelease(ownerPidKey);
+                CoreFoundation.CFRelease(windowList);
+            }
+        }
+
+        private static bool TryGetBounds(IntPtr window, IntPtr boundsKey, out CGRect bounds)
+        {
+            bounds = default;
+
+            var boundsDictionary = CFDictionaryGetValue(window, boundsKey);
+            if (boundsDictionary == IntPtr.Zero)
+                return false;
+
+            var xKey = CreateString("X");
+            var yKey = CreateString("Y");
+            var widthKey = CreateString("Width");
+            var heightKey = CreateString("Height");
+
+            try
+            {
+                if (!TryGetDouble(boundsDictionary, xKey, out var x) ||
+                    !TryGetDouble(boundsDictionary, yKey, out var y) ||
+                    !TryGetDouble(boundsDictionary, widthKey, out var width) ||
+                    !TryGetDouble(boundsDictionary, heightKey, out var height))
+                {
+                    return false;
+                }
+
+                bounds = new CGRect(new CGPoint(x, y), new CGSize(width, height));
+                return true;
+            }
+            finally
+            {
+                CoreFoundation.CFRelease(heightKey);
+                CoreFoundation.CFRelease(widthKey);
+                CoreFoundation.CFRelease(yKey);
+                CoreFoundation.CFRelease(xKey);
+            }
+        }
+
+        private static bool TryGetInt(IntPtr dictionary, IntPtr key, out int value)
+        {
+            value = 0;
+
+            var number = CFDictionaryGetValue(dictionary, key);
+            return number != IntPtr.Zero && CFNumberGetValue(number, kCFNumberIntType, out value);
+        }
+
+        private static bool TryGetDouble(IntPtr dictionary, IntPtr key, out double value)
+        {
+            value = 0;
+
+            var number = CFDictionaryGetValue(dictionary, key);
+            return number != IntPtr.Zero && CFNumberGetValue(number, kCFNumberDoubleType, out value);
+        }
+
+        private static bool Contains(CGRect bounds, CGPoint location) =>
+            location.x >= bounds.origin.x &&
+            location.x < bounds.origin.x + bounds.size.width &&
+            location.y >= bounds.origin.y &&
+            location.y < bounds.origin.y + bounds.size.height;
+
+        private void ActivateTarget(int pid, IntPtr windowElement)
+        {
+            if (windowElement != IntPtr.Zero)
+                _ = AXUIElementPerformAction(windowElement, _axRaiseAction);
+
+            ActivateApplication(pid);
         }
 
         private void ActivateApplication(int pid)
@@ -109,13 +328,27 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
             var app = objc_msgSend_IntPtr_int(_runningApplicationClass, _runningApplicationWithPidSelector, pid);
             if (app != IntPtr.Zero)
-                _ = objc_msgSend_bool_ulong(app, _activateWithOptionsSelector, NSApplicationActivateAllWindows);
+                _ = objc_msgSend_bool_ulong(app, _activateWithOptionsSelector, NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps);
         }
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
+
+            lock (_cacheLock)
+            {
+                if (_cachedWindowElement != IntPtr.Zero)
+                {
+                    CoreFoundation.CFRelease(_cachedWindowElement);
+                    _cachedWindowElement = IntPtr.Zero;
+                }
+            }
+
+            CoreFoundation.CFRelease(_axRaiseAction);
         }
+
+        private static double ElapsedMilliseconds(long startTimestamp, long endTimestamp) =>
+            (endTimestamp - startTimestamp) * 1000.0 / Stopwatch.Frequency;
     }
 }

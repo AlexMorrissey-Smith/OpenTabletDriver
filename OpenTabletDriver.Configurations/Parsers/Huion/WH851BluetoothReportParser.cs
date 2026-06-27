@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using OpenTabletDriver.Configurations.Parsers.UCLogic;
 using OpenTabletDriver.Plugin.Tablet;
 
 namespace OpenTabletDriver.Configurations.Parsers.Huion
@@ -10,6 +11,9 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
         {
             if (data.Length >= 12 && data[0] == 0x08)
             {
+                if (data[1] == 0xe0 || data[1] == 0xe3)
+                    return new UCLogicAuxReport(data);
+
                 if (!data[1].IsBitSet(7))
                     return new OutOfRangeReport(data);
 

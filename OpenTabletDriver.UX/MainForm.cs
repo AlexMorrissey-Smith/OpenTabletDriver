@@ -39,16 +39,6 @@ namespace OpenTabletDriver.UX
 
             trayIcon?.Indicator.Show();
 
-            saveButton = new Button(async (s, e) => await SaveSettings())
-            {
-                Text = "Save"
-            };
-
-            applyButton = new Button(async (s, e) => await ApplySettings())
-            {
-                Text = "Apply"
-            };
-
             App.Driver.Connected += HandleDaemonConnected;
             App.Driver.Disconnected += HandleDaemonDisconnected;
 
@@ -443,20 +433,7 @@ namespace OpenTabletDriver.UX
             App.Driver.Resynchronize += async (sender, e) => await SyncSettings();
 
             // Set window content
-            base.Content = new TabletSwitcherPanel
-            {
-                CommandsControl = new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    HorizontalContentAlignment = HorizontalAlignment.Right,
-                    Spacing = 5,
-                    Items =
-                    {
-                        saveButton,
-                        applyButton,
-                    }
-                }
-            };
+            base.Content = new TabletSwitcherPanel();
 
             // Update preset options in File menu and tray icon
             await RefreshPresets();
@@ -465,9 +442,6 @@ namespace OpenTabletDriver.UX
             if (await App.Driver.Instance.GetTablets() is IEnumerable<TabletReference> tablets)
                 SetTitle(tablets);
         });
-
-        private Button saveButton;
-        private Button applyButton;
 
         private static async void LogToDriver(object? sender, LogMessage message)
         {
@@ -581,10 +555,8 @@ namespace OpenTabletDriver.UX
             return $"opentabletdriver-settings-{safeTabletName}-{DateTime.Now:yyyyMMdd-HHmmss}.json";
         }
 
-        private async Task SaveSettings()
+        private static async Task SaveSettings()
         {
-            DisableApplySaveButtons();
-
             Debug.Assert(App.Driver.IsConnected, "Save should be disabled when no driver is connected");
 
             if (App.Current.Settings is Settings settings)
@@ -612,34 +584,8 @@ namespace OpenTabletDriver.UX
             }
         }
 
-        private CancellationTokenSource _disableApplySaveButtons = new();
-
-        private void DisableApplySaveButtons(bool disableSave = true)
+        private static async Task ApplySettings()
         {
-            Application.Instance.InvokeAsync(async () =>
-            {
-                await _disableApplySaveButtons.CancelAsync();
-                _disableApplySaveButtons = new CancellationTokenSource();
-                if (disableSave)
-                    saveButton.Enabled = false;
-
-                applyButton.Enabled = false;
-
-                // debounce re-enabling task
-                await Task.Delay(1000, _disableApplySaveButtons.Token).ContinueWith(task =>
-                {
-                    if (task.IsCanceled) return;
-
-                    saveButton.Enabled = true;
-                    applyButton.Enabled = true;
-                }, TaskScheduler.FromCurrentSynchronizationContext());
-            }).ConfigureAwait(false);
-        }
-
-        private async Task ApplySettings()
-        {
-            DisableApplySaveButtons(false);
-
             Debug.Assert(App.Driver.IsConnected, "Apply should be disabled when no driver is connected");
 
             if (App.Current.SettingsAutosave != null)

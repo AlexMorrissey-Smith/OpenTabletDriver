@@ -99,6 +99,29 @@ namespace OpenTabletDriver.Tests
         }
 
         [Fact]
+        public void BluetoothParserParsesOfficialBleAuxReport()
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0xe0,
+                0x00, 0x00,
+                0x01, 0x02,
+                0x00, 0x00,
+                0x00, 0x00,
+                0x00,
+                0x00,
+                0x00
+            ]);
+
+            var auxReport = Assert.IsAssignableFrom<IAuxReport>(report);
+            Assert.True(auxReport.AuxButtons[0]);
+            Assert.True(auxReport.AuxButtons[9]);
+        }
+
+        [Fact]
         public void BluetoothParserKeepsOfficialBleHoverPressureAtZero()
         {
             var parser = new WH851BluetoothReportParser();

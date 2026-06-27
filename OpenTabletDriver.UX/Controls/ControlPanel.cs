@@ -13,27 +13,69 @@ namespace OpenTabletDriver.UX.Controls
 {
     public class ControlPanel : Panel
     {
+        private const string NativeTabTrailingPadding = "\u00a0\u00a0\u00a0";
+
         public ControlPanel()
         {
-            tabControl = new SegmentedTabControl();
+            var control = new TabControl();
 
-            tabletPage = tabControl.AddPage("Tablet", outputModeEditor = new());
-            penPage = tabControl.AddPage("Pen", penBindingEditor = new PenBindingEditor());
-            buttonsPage = tabControl.AddPage("Buttons", auxBindingEditor = new AuxiliaryBindingEditor());
-            mousePage = tabControl.AddPage("Mouse", mouseBindingEditor = new MouseBindingEditor(), false);
-            toolsPage = tabControl.AddPage("Tools", new Panel { Padding = 5, Content = toolEditor = new() });
-            filtersPage = tabControl.AddPage("Filters", new Panel { Padding = 5, Content = filterEditor = new() });
-            placeholderPage = tabControl.AddPage("Info", new Panel
+            control.Pages.Add(new TabPage
             {
+                Text = NativeTabText("Tablet"),
+                Content = outputModeEditor = new()
+            });
+
+            control.Pages.Add(new TabPage
+            {
+                Text = NativeTabText("Pen"),
+                Content = penBindingEditor = new PenBindingEditor()
+            });
+
+            control.Pages.Add(new TabPage
+            {
+                Text = NativeTabText("Buttons"),
+                Content = auxBindingEditor = new AuxiliaryBindingEditor()
+            });
+
+            control.Pages.Add(new TabPage
+            {
+                ID = "mouse",
+                Text = NativeTabText("Mouse"),
+                Content = mouseBindingEditor = new MouseBindingEditor()
+            });
+
+            control.Pages.Add(new TabPage
+            {
+                Text = NativeTabText("Tools"),
+                Padding = 5,
+                Content = toolEditor = new()
+            });
+
+            control.Pages.Add(new TabPage
+            {
+                Text = NativeTabText("Filters"),
+                Padding = 5,
+                Content = filterEditor = new()
+            });
+
+            control.Pages.Add(new TabPage
+            {
+                Text = NativeTabText("Info"),
                 Padding = 5,
                 Content = placeholder = new Placeholder
                 {
                     Text = "No tablets are detected."
                 }
-            }, false);
-            consolePage = tabControl.AddPage("Console", new Panel { Padding = 5, Content = logView = new() });
+            });
 
-            this.Content = tabControl;
+            control.Pages.Add(new TabPage
+            {
+                Text = NativeTabText("Console"),
+                Padding = 5,
+                Content = logView = new()
+            });
+
+            this.Content = tabControl = control;
 
             outputModeEditor.ProfileBinding.Bind(ProfileBinding);
             penBindingEditor.ProfileBinding.Bind(ProfileBinding);
@@ -43,18 +85,9 @@ namespace OpenTabletDriver.UX.Controls
             toolEditor.StoreCollectionBinding.Bind(App.Current, a => a.Settings.Tools);
 
             outputModeEditor.SetDisplaySize(DesktopInterop.VirtualScreen?.Displays);
-
-            Log.Output += (_, message) => Application.Instance.AsyncInvoke(() =>
-            {
-                if (message.Level > LogLevel.Info)
-                {
-                    tabControl.SelectedPage = consolePage;
-                }
-            });
         }
 
-        private SegmentedTabControl tabControl;
-        private SegmentedTabPage tabletPage, penPage, buttonsPage, mousePage, toolsPage, filtersPage, placeholderPage, consolePage;
+        private TabControl tabControl;
         private Placeholder placeholder;
         private LogView logView;
         private OutputModeEditor outputModeEditor;
@@ -86,49 +119,53 @@ namespace OpenTabletDriver.UX.Controls
 
             OnTabletChanged(tablet);
 
+            if (Platform.IsMac)
+                tabControl.Pages.Clear();
+
             if (tablet != null)
             {
-                bool switchToTablet = tabControl.SelectedPage == placeholderPage;
+                bool switchToTablet = tabControl.SelectedPage == placeholder.Parent;
 
-                SetPageVisibility(placeholderPage, false);
-                SetPageVisibility(tabletPage, true);
-                SetPageVisibility(penPage, true);
-                SetPageVisibility(buttonsPage, tablet.Properties.Specifications.AuxiliaryButtons != null);
-                SetPageVisibility(toolsPage, true);
-                SetPageVisibility(filtersPage, true);
+                SetPageVisibility(placeholder, false);
+                SetPageVisibility(outputModeEditor, true);
+                SetPageVisibility(penBindingEditor, true);
+                SetPageVisibility(auxBindingEditor, tablet.Properties.Specifications.AuxiliaryButtons != null);
 
                 for (int i = 0; i < wheelBindingEditors.Count; i++)
-                    SetPageVisibility(wheelPages[i], (tablet.Properties.Specifications.Wheels?.Count ?? 0) > i);
+                    SetPageVisibility(wheelBindingEditors[i], (tablet.Properties.Specifications.Wheels?.Count ?? 0) > i);
 
-                SetPageVisibility(mousePage, tablet.Properties.Specifications.MouseButtons != null);
+                SetPageVisibility(mouseBindingEditor, tablet.Properties.Specifications.MouseButtons != null);
+                SetPageVisibility(toolEditor, true);
+                SetPageVisibility(filterEditor, true);
 
                 if (switchToTablet)
                     tabControl.SelectedIndex = 0;
             }
             else
             {
-                SetPageVisibility(placeholderPage, true);
-                SetPageVisibility(tabletPage, false);
-                SetPageVisibility(penPage, false);
-                SetPageVisibility(buttonsPage, false);
-                SetPageVisibility(toolsPage, false);
-                SetPageVisibility(filtersPage, false);
-                foreach (var page in wheelPages)
-                    SetPageVisibility(page, false);
-                SetPageVisibility(mousePage, false);
+                SetPageVisibility(placeholder, true);
+                SetPageVisibility(outputModeEditor, false);
+                SetPageVisibility(penBindingEditor, false);
+                SetPageVisibility(auxBindingEditor, false);
+                foreach (var controlItem in wheelBindingEditors)
+                    SetPageVisibility(controlItem, false);
+                SetPageVisibility(mouseBindingEditor, false);
+                SetPageVisibility(toolEditor, false);
+                SetPageVisibility(filterEditor, false);
 
-                if (tabControl.SelectedPage != consolePage)
+                if (tabControl.SelectedPage != logView.Parent)
                 {
-                    tabControl.SelectedPage = placeholderPage;
+                    tabControl.SelectedIndex = Profile == null ?
+                        tabControl.Pages.IndexOf(placeholder.Parent as TabPage) :
+                        0;
                 }
             }
 
-            SetPageVisibility(consolePage, true);
+            SetPageVisibility(logView, true);
         });
 
         private void OnTabletChanged(TabletReference? tablet)
         {
-            // ensure we have enough wheel binding editors
             int tabletWheels = tablet?.Properties.Specifications.Wheels?.Count ?? 0;
             if (tabletWheels > wheelBindingEditors.Count)
             {
@@ -136,11 +173,13 @@ namespace OpenTabletDriver.UX.Controls
                 {
                     var wheelBindingEditor = new WheelBindingEditor(i);
                     wheelBindingEditor.ProfileBinding.Bind(ProfileBinding);
-                    var pageIndex = tabControl.IndexOf(toolsPage);
+                    var pageIndex = tabControl.Pages.IndexOf(toolEditor.Parent as TabPage);
                     wheelBindingEditors.Add(wheelBindingEditor);
-                    var wheelPage = new SegmentedTabPage($"Wheel {i + 1}", wheelBindingEditor, false);
-                    wheelPages.Add(wheelPage);
-                    tabControl.InsertPage(pageIndex, wheelPage);
+                    var wheelPage = new TabPage(wheelBindingEditor) { Text = NativeTabText($"Wheel {i + 1}") };
+                    if (pageIndex >= 0)
+                        tabControl.Pages.Insert(pageIndex, wheelPage);
+                    else
+                        tabControl.Pages.Add(wheelPage);
                 }
             }
         }
@@ -159,8 +198,23 @@ namespace OpenTabletDriver.UX.Controls
             }
         }
 
-        private readonly List<SegmentedTabPage> wheelPages = [];
+        private void SetPageVisibility(Control control, bool visible)
+        {
+            if (Platform.IsMac)
+            {
+                if (visible)
+                {
+                    var page = control.Parent as TabPage;
+                    tabControl.Pages.Add(page);
+                }
+            }
+            else
+            {
+                control.Parent.Visible = visible;
+            }
+        }
 
-        private void SetPageVisibility(SegmentedTabPage page, bool visible) => tabControl.SetPageVisible(page, visible);
+        private static string NativeTabText(string text) =>
+            text + NativeTabTrailingPadding;
     }
 }

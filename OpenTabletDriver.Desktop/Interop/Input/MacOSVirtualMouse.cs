@@ -107,6 +107,8 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                 var cgEventType = ToDragCGEventType(_lastButton, lastButtonSet);
                 CGEventSetType(_mouseEvent, cgEventType);
                 SetPendingPosition(_mouseEvent, position.X, position.Y);
+                if (_currButtonStates == 0)
+                    _windowActivator.QueueTargetUpdate(CGEventGetLocation(_mouseEvent));
                 ApplyTabletValues();
                 PostEvent();
             }
@@ -250,7 +252,11 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                         SetPendingPosition(_mouseEvent, position.X, position.Y);
                     }
                     if (currState)
-                        _windowActivator.ActivateAt(CGEventGetLocation(_mouseEvent));
+                    {
+                        var location = CGEventGetLocation(_mouseEvent);
+                        _windowActivator.QueueTargetUpdate(location);
+                        _windowActivator.ActivateAt(location);
+                    }
                     CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventButtonNumber, i);
                     CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventClickState, _clickState); // clickState should be set to 1 (or more) during up, down, and drag events
                     ApplyTabletValues();
