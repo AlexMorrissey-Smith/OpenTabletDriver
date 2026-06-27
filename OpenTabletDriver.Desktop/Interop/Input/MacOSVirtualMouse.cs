@@ -62,7 +62,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             _stopWatch.Start();
             _eventSource = CGEventSourceCreate(CGEventSourceStatePrivate);
             CGEventSourceSetUserData(_eventSource, DeviceId);
-            _mouseEvent = CGEventCreate(_eventSource);
+            _mouseEvent = IntPtr.Zero;
             _keyboard = DesktopInterop.VirtualKeyboard as MacOSVirtualKeyboard
                         ?? throw new InvalidOperationException("Could not get virtual keyboard");
             _windowActivator = new MacOSWindowActivator();
@@ -105,7 +105,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                 // can send drag here
                 var lastButtonSet = IsButtonSet(_currButtonStates, _lastButton);
                 var cgEventType = ToDragCGEventType(_lastButton, lastButtonSet);
-                CGEventSetType(_mouseEvent, cgEventType);
+                ResetMouseEvent(cgEventType, _lastButton);
                 SetPendingPosition(_mouseEvent, position.X, position.Y);
                 if (_currButtonStates == 0)
                     _windowActivator.QueueTargetUpdate(CGEventGetLocation(_mouseEvent));
@@ -240,13 +240,9 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                         }
                     }
 
-                    // prepare the mouse event, we reset it here in case
-                    // it's a relative event
-                    ResetPendingPosition(_mouseEvent);
-
-                    // propagate pending position to mouseEvent
                     var cgEventType = ToNoDragCGEventType(button, currState);
-                    CGEventSetType(_mouseEvent, cgEventType);
+                    ResetMouseEvent(cgEventType, button);
+                    ResetPendingPosition(_mouseEvent);
                     if (DrainPendingPosition() is { } position)
                     {
                         SetPendingPosition(_mouseEvent, position.X, position.Y);
@@ -268,7 +264,8 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             if (currButtonStates == 0)
             {
                 // no buttons are pressed, reset button to 0
-                CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventButtonNumber, 0);
+                if (_mouseEvent != IntPtr.Zero)
+                    CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventButtonNumber, 0);
             }
         }
 
@@ -391,7 +388,15 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             // Fields in a CGEvent are stored in a union determined by the event type,
             // and they cannot be safely reused.
             CFRelease(_mouseEvent);
-            _mouseEvent = CGEventCreate(_eventSource);
+            _mouseEvent = IntPtr.Zero;
+        }
+
+        private void ResetMouseEvent(CGEventType eventType, CGMouseButton button)
+        {
+            if (_mouseEvent != IntPtr.Zero)
+                CFRelease(_mouseEvent);
+
+            _mouseEvent = CGEventCreateMouseEvent(_eventSource, eventType, new CGPoint(0, 0), button);
         }
 
         ~MacOSVirtualMouse()

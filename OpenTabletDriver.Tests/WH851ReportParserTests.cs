@@ -53,6 +53,26 @@ namespace OpenTabletDriver.Tests
         }
 
         [Fact]
+        public void BluetoothParserAppliesMinimumPressureForStandardBleContact()
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x0a,
+                0x40 | 0x01,
+                0x34, 0x12,
+                0x78, 0x56,
+                0x00, 0x00,
+                0x00,
+                0x00
+            ]);
+
+            var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
+            Assert.Equal(256u, tabletReport.Pressure);
+        }
+
+        [Fact]
         public void BluetoothParserParsesOfficialBlePenReport()
         {
             var parser = new WH851BluetoothReportParser();
@@ -96,6 +116,75 @@ namespace OpenTabletDriver.Tests
             ]);
 
             Assert.IsType<OutOfRangeReport>(report);
+        }
+
+        [Fact]
+        public void UsbParserParsesPenReport()
+        {
+            var parser = new WH851UsbReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x80 | 0x02,
+                0x34, 0x12,
+                0x78, 0x56,
+                0xbc, 0x0a,
+                0x00, 0x00,
+                0xfe,
+                0x05
+            ]);
+
+            var tabletReport = Assert.IsType<WH851UsbPenReport>(report);
+            Assert.Equal(0x1234, tabletReport.Position.X);
+            Assert.Equal(0x5678, tabletReport.Position.Y);
+            Assert.Equal(0x0abcu, tabletReport.Pressure);
+            Assert.Equal(-2, tabletReport.Tilt.X);
+            Assert.Equal(-5, tabletReport.Tilt.Y);
+            Assert.True(tabletReport.PenButtons[0]);
+            Assert.False(tabletReport.PenButtons[1]);
+        }
+
+        [Fact]
+        public void UsbParserKeepsHoverPressureAtZero()
+        {
+            var parser = new WH851UsbReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x80,
+                0x34, 0x12,
+                0x78, 0x56,
+                0x00, 0x00,
+                0x00, 0x00,
+                0x00,
+                0x00
+            ]);
+
+            var tabletReport = Assert.IsType<WH851UsbPenReport>(report);
+            Assert.Equal(0u, tabletReport.Pressure);
+        }
+
+        [Fact]
+        public void UsbParserAppliesMinimumPressureForContact()
+        {
+            var parser = new WH851UsbReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x80 | 0x01,
+                0x34, 0x12,
+                0x78, 0x56,
+                0x00, 0x00,
+                0x00, 0x00,
+                0x00,
+                0x00
+            ]);
+
+            var tabletReport = Assert.IsType<WH851UsbPenReport>(report);
+            Assert.Equal(256u, tabletReport.Pressure);
         }
 
         [Fact]

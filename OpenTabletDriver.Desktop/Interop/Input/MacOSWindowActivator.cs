@@ -57,15 +57,28 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             if (Volatile.Read(ref _disposed) != 0)
                 return;
 
+            var pool = objc_autoreleasePoolPush();
+            var windowElement = IntPtr.Zero;
             try
             {
-                if (TryGetCachedTarget(location, out var pid, out var windowElement))
-                    QueueActivateTarget(pid, windowElement);
-                else
-                    QueueTargetUpdate(location);
+                if (!TryGetCachedTarget(location, out var pid, out windowElement))
+                {
+                    if (!TryGetTargetAt(location, out pid, out windowElement))
+                        return;
+
+                    CacheTarget(location, pid, windowElement, retainWindowElement: true);
+                }
+
+                ActivateTarget(pid, windowElement);
             }
             catch
             {
+            }
+            finally
+            {
+                if (windowElement != IntPtr.Zero)
+                    CoreFoundation.CFRelease(windowElement);
+                objc_autoreleasePoolPop(pool);
             }
         }
 
@@ -110,23 +123,13 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             var windowElement = IntPtr.Zero;
             try
             {
-                if (!TryGetAccessibilityTargetAt(location, out pid, out windowElement))
-                    _ = TryGetWindowOwnerAt(location, out pid);
+                _ = TryGetTargetAt(location, out pid, out windowElement);
 
                 if (Volatile.Read(ref _disposed) != 0)
                     return;
 
-                lock (_cacheLock)
-                {
-                    if (_cachedWindowElement != IntPtr.Zero)
-                        CoreFoundation.CFRelease(_cachedWindowElement);
-
-                    _cachedLocation = location;
-                    _cachedWindowElement = windowElement;
-                    windowElement = IntPtr.Zero;
-                    _cachedPid = pid;
-                    _cachedTimestamp = Stopwatch.GetTimestamp();
-                }
+                CacheTarget(location, pid, windowElement, retainWindowElement: false);
+                windowElement = IntPtr.Zero;
             }
             catch
             {
@@ -137,6 +140,22 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                     CoreFoundation.CFRelease(windowElement);
                 objc_autoreleasePoolPop(pool);
                 Volatile.Write(ref _updateInProgress, 0);
+            }
+        }
+
+        private void CacheTarget(CGPoint location, int pid, IntPtr windowElement, bool retainWindowElement)
+        {
+            lock (_cacheLock)
+            {
+                if (_cachedWindowElement != IntPtr.Zero)
+                    CoreFoundation.CFRelease(_cachedWindowElement);
+
+                _cachedLocation = location;
+                _cachedWindowElement = retainWindowElement && windowElement != IntPtr.Zero
+                    ? CoreFoundation.CFRetain(windowElement)
+                    : windowElement;
+                _cachedPid = pid;
+                _cachedTimestamp = Stopwatch.GetTimestamp();
             }
         }
 
@@ -213,6 +232,15 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
             pid = 0;
             return false;
+        }
+
+        private static bool TryGetTargetAt(CGPoint location, out int pid, out IntPtr windowElement)
+        {
+            if (TryGetAccessibilityTargetAt(location, out pid, out windowElement))
+                return true;
+
+            windowElement = IntPtr.Zero;
+            return TryGetWindowOwnerAt(location, out pid);
         }
 
         private static bool TryGetWindowOwnerAt(CGPoint location, out int pid)
