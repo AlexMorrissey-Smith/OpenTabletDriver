@@ -239,6 +239,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
             private int loggedEvents;
             private int loggedRawEvents;
             private int loggedNativeSuppressed;
+            private int loggedSyntheticPassed;
             private int loggedTapDisabled;
             private int loggedSyntheticReports;
 
@@ -498,6 +499,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
                 bluetoothBridgeErrorThread.Start(process);
 
                 Log.Debug("WH851 macOS HID", $"Using CoreBluetooth bridge path for Bluetooth endpoint {bluetoothPeripheralIdentifier}.");
+                Log.Debug("WH851 macOS HID", "CoreBluetooth bridge active; native Bluetooth tablet events will be suppressed while OTD synthetic mouse events pass through.");
                 return 0;
             }
 
@@ -744,7 +746,11 @@ namespace OpenTabletDriver.Devices.MacOSHid
                     return eventRef;
 
                 if (IsOpenTabletDriverSyntheticEvent(deviceId, eventSourceUserData))
+                {
+                    if (Interlocked.Exchange(ref stream.loggedSyntheticPassed, 1) == 0)
+                        Log.Debug("WH851 macOS HID", $"Passing OTD synthetic Quartz event type={type} subtype={subtype} source={eventSourceUserData} device={deviceId}.");
                     return eventRef;
+                }
 
                 if (Volatile.Read(ref stream.usingCoreBluetoothBridge) != 0)
                 {

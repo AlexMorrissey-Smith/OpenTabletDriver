@@ -20,6 +20,16 @@ if [ -f "${helper_source}" ] && hash swiftc 2>/dev/null; then
     -framework CoreBluetooth
 fi
 
+overlay_source="${pkg_script_root}/../../../tools/macos/WheelModeOverlay/Sources/WheelModeOverlay/main.swift"
+if [ -f "${overlay_source}" ] && hash swiftc 2>/dev/null; then
+  echo "Building wheel mode overlay..."
+  swiftc \
+    "${overlay_source}" \
+    -o "${OUTPUT}/OpenTabletDriver.WheelModeOverlay" \
+    -framework AppKit \
+    -framework Foundation
+fi
+
 move_to_nested "${OUTPUT}" "${pkg_root}/Contents/MacOS"
 rm -rf "${pkg_root}/Contents/MacOS/OpenTabletDriver.UX.MacOS.app"
 
@@ -33,7 +43,17 @@ if [ "${SIGNED}" == "true" ]; then
   if hash rcodesign 2>/dev/null; then
     rcodesign sign "${pkg_root}"
   elif hash codesign 2>/dev/null; then
-    codesign_identity="${CODESIGN_IDENTITY:--}"
+    codesign_identity="${CODESIGN_IDENTITY:-}"
+    if [ -z "${codesign_identity}" ]; then
+      codesign_identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)"
+    fi
+    if [ -z "${codesign_identity}" ]; then
+      codesign_identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' | head -n 1)"
+    fi
+    if [ -z "${codesign_identity}" ]; then
+      exit_with_error "No Developer ID Application or Apple Development signing identity found"
+    fi
+
     timestamp_arg=(--timestamp=none)
     if [ "${codesign_identity}" == "-" ]; then
       timestamp_arg=()

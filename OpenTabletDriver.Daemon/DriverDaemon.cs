@@ -232,6 +232,7 @@ namespace OpenTabletDriver.Daemon
                     var profile = Settings.Profiles[dev];
 
                     profile.BindingSettings.MatchSpecifications(dev.Properties.Specifications);
+                    profile.BindingSettings.ApplyTabletSpecificDefaults(dev.Properties.Name);
 
                     dev.OutputMode = profile.OutputMode.Construct<IOutputMode>(tabletReference);
 
@@ -495,6 +496,11 @@ namespace OpenTabletDriver.Daemon
             var bindingHandler = new BindingHandler(tabletReference);
 
             var bindingServiceProvider = new ServiceManager();
+            if (DesktopInterop.VirtualKeyboard is { } virtualKeyboard)
+                bindingServiceProvider.AddService(() => virtualKeyboard);
+            if (DesktopInterop.Timer is { } timer)
+                bindingServiceProvider.AddService(() => timer);
+
             object? pointer = outputMode switch
             {
                 AbsoluteOutputMode absoluteOutputMode => absoluteOutputMode.Pointer,

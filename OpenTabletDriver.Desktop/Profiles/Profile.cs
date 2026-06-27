@@ -66,13 +66,16 @@ namespace OpenTabletDriver.Desktop.Profiles
 
         public static Profile GetDefaults(TabletReference tablet)
         {
+            var bindingSettings = BindingSettings.GetDefaults(tablet.Properties.Specifications);
+            bindingSettings.ApplyTabletSpecificDefaults(tablet.Properties.Name);
+
             return new Profile
             {
                 Tablet = tablet.Properties.Name,
                 OutputMode = new PluginSettingStore(DefaultOutputModeType),
                 AbsoluteModeSettings = AbsoluteModeSettings.GetDefaults(tablet.Properties.Specifications.Digitizer),
                 RelativeModeSettings = RelativeModeSettings.GetDefaults(),
-                BindingSettings = BindingSettings.GetDefaults(tablet.Properties.Specifications)
+                BindingSettings = bindingSettings
             };
         }
     }

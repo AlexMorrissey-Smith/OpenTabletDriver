@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Newtonsoft.Json;
 using OpenTabletDriver.Desktop.Binding;
 using OpenTabletDriver.Desktop.Reflection;
@@ -140,6 +141,52 @@ namespace OpenTabletDriver.Desktop.Profiles
             bindingSettings.SetupWheelDefaults(tabletSpecifications);
 
             return bindingSettings;
+        }
+
+        public void ApplyTabletSpecificDefaults(string tabletName)
+        {
+            if (tabletName != "Gaomon WH851")
+                return;
+
+            while (AuxButtons.Count < 9)
+                AuxButtons.Add(null);
+
+            AuxButtons[8] ??= new PluginSettingStore(new WheelModeSwitchBinding());
+
+            if (WheelBindings.Count == 0)
+                return;
+
+            var wheel = WheelBindings[0];
+            var oneDetent = wheel.StepSize.HasValue ? (float)wheel.StepSize.Value : 15f;
+
+            if (wheel.ClockwiseActivationThreshold <= 0)
+                wheel.ClockwiseActivationThreshold = oneDetent;
+            if (wheel.CounterClockwiseActivationThreshold <= 0)
+                wheel.CounterClockwiseActivationThreshold = oneDetent;
+
+            wheel.ClockwiseRotation = EnsureWheelModeActionSettings(wheel.ClockwiseRotation, new WheelModeClockwiseBinding());
+            wheel.CounterClockwiseRotation = EnsureWheelModeActionSettings(wheel.CounterClockwiseRotation, new WheelModeCounterClockwiseBinding());
+        }
+
+        private static PluginSettingStore EnsureWheelModeActionSettings(PluginSettingStore? store, WheelModeActionBinding defaultBinding)
+        {
+            if (store == null)
+                return new PluginSettingStore(defaultBinding);
+
+            if (store.Path != defaultBinding.GetType().FullName)
+                return store;
+
+            string[] requiredSettings =
+            [
+                nameof(WheelModeActionBinding.ScrollAmount),
+                nameof(WheelModeActionBinding.BrushDetentsPerStep),
+                nameof(WheelModeActionBinding.ZoomDetentsPerStep),
+                nameof(WheelModeActionBinding.DebounceMs)
+            ];
+
+            return requiredSettings.All(setting => store.Settings.Any(existing => existing.Property == setting))
+                ? store
+                : new PluginSettingStore(defaultBinding);
         }
 
         public void MatchSpecifications(TabletSpecifications tabletSpecifications)

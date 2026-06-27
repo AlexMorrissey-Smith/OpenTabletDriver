@@ -127,6 +127,9 @@ namespace OpenTabletDriver.Desktop.Binding
 
         private void HandleOutOfRangeReport(TabletReference tablet, IDeviceReport report)
         {
+            Tip?.Invoke(tablet, report, 0);
+            Eraser?.Invoke(tablet, report, 0);
+
             for (var i = 0; i < PenButtons.Count; i++)
             {
                 if (PenButtons.TryGetValue(i, out var binding))

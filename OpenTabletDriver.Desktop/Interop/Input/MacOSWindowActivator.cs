@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using OpenTabletDriver.Native.OSX;
 using OpenTabletDriver.Native.OSX.Generic;
+using OpenTabletDriver.Plugin;
 
 namespace OpenTabletDriver.Desktop.Interop.Input
 {
@@ -32,6 +33,8 @@ namespace OpenTabletDriver.Desktop.Interop.Input
         private long _lastUpdateQueuedTimestamp;
         private int _updateInProgress;
         private int _activationInProgress;
+        private int _loggedActivationResult;
+        private int _loggedSystemUiSkip;
         private int _disposed;
 
         public void QueueTargetUpdate(CGPoint location)
@@ -58,18 +61,60 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                 return;
 
             var pool = objc_autoreleasePoolPush();
-            var windowElement = IntPtr.Zero;
+            var started = Stopwatch.GetTimestamp();
             try
             {
-                if (!TryGetCachedTarget(location, out var pid, out windowElement))
+                if (!TryGetWindowOwnerAt(location, out var pid))
                 {
-                    if (!TryGetTargetAt(location, out pid, out windowElement))
+                    if (!TryGetCachedTarget(location, out pid, out var cachedWindowElement))
                         return;
 
-                    CacheTarget(location, pid, windowElement, retainWindowElement: true);
+                    if (cachedWindowElement != IntPtr.Zero)
+                        CoreFoundation.CFRelease(cachedWindowElement);
                 }
 
-                ActivateTarget(pid, windowElement);
+                if (IsSystemUiTarget(pid, out var processName))
+                {
+                    if (Interlocked.Exchange(ref _loggedSystemUiSkip, 1) == 0)
+                        Log.Debug("macOS Window Activator", $"Skipping explicit app activation for system UI target pid={pid} process={processName}.");
+                    return;
+                }
+
+                ActivateApplication(pid);
+                if (Interlocked.Exchange(ref _loggedActivationResult, 1) == 0)
+                    Log.Debug("macOS Window Activator", $"Activated target pid={pid} elapsed={ElapsedMilliseconds(started, Stopwatch.GetTimestamp()):0.##}ms.");
+            }
+            catch
+            {
+            }
+            finally
+            {
+                objc_autoreleasePoolPop(pool);
+            }
+        }
+
+        public void ActivateCachedAt(CGPoint location)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+
+            if (!TryGetCachedTarget(location, out var pid, out var windowElement))
+                return;
+
+            var pool = objc_autoreleasePoolPush();
+            var started = Stopwatch.GetTimestamp();
+            try
+            {
+                if (IsSystemUiTarget(pid, out var processName))
+                {
+                    if (Interlocked.Exchange(ref _loggedSystemUiSkip, 1) == 0)
+                        Log.Debug("macOS Window Activator", $"Skipping explicit app activation for system UI target pid={pid} process={processName}.");
+                    return;
+                }
+
+                ActivateApplication(pid);
+                if (Interlocked.Exchange(ref _loggedActivationResult, 1) == 0)
+                    Log.Debug("macOS Window Activator", $"Activated cached target pid={pid} elapsed={ElapsedMilliseconds(started, Stopwatch.GetTimestamp()):0.##}ms.");
             }
             catch
             {
@@ -236,11 +281,11 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
         private static bool TryGetTargetAt(CGPoint location, out int pid, out IntPtr windowElement)
         {
-            if (TryGetAccessibilityTargetAt(location, out pid, out windowElement))
+            windowElement = IntPtr.Zero;
+            if (TryGetWindowOwnerAt(location, out pid))
                 return true;
 
-            windowElement = IntPtr.Zero;
-            return TryGetWindowOwnerAt(location, out pid);
+            return TryGetAccessibilityTargetAt(location, out pid, out windowElement);
         }
 
         private static bool TryGetWindowOwnerAt(CGPoint location, out int pid)
@@ -357,6 +402,22 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             var app = objc_msgSend_IntPtr_int(_runningApplicationClass, _runningApplicationWithPidSelector, pid);
             if (app != IntPtr.Zero)
                 _ = objc_msgSend_bool_ulong(app, _activateWithOptionsSelector, NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps);
+        }
+
+        private static bool IsSystemUiTarget(int pid, out string processName)
+        {
+            processName = string.Empty;
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                processName = process.ProcessName;
+            }
+            catch
+            {
+                return false;
+            }
+
+            return processName is "Dock" or "SystemUIServer" or "ControlCenter" or "NotificationCenter";
         }
 
         public void Dispose()
