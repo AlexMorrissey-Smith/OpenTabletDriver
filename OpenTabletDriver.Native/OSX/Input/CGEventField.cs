@@ -23,6 +23,8 @@ namespace OpenTabletDriver.Native.OSX.Input
         scrollWheelEventPointDeltaAxis2 = 97, // int
         scrollWheelEventPointDeltaAxis3 = 98, // int
         scrollWheelEventInstantMouser = 14, // int
+        tabletEventPointX = 15, // int
+        tabletEventPointY = 16, // int
         tabletEventPointButtons = 18, // int
         tabletEventPointPressure = 19, // double
         tabletEventTiltX = 20, // double

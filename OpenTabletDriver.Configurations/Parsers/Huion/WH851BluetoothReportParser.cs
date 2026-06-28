@@ -1,7 +1,10 @@
+using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using OpenTabletDriver.Configurations.Parsers.UCLogic;
+using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Tablet;
 
 namespace OpenTabletDriver.Configurations.Parsers.Huion
@@ -13,9 +16,13 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
 
     public class WH851BluetoothReportParser : IReportParser<IDeviceReport>
     {
+        private static int loggedReports;
+
         public IDeviceReport Parse(byte[] data)
         {
-            if (data.Length >= 12 && data[0] == 0x08)
+            LogTiming(data);
+
+            if (data.Length >= 10 && data[0] == 0x08)
             {
                 if (data[1] == 0xf1)
                     return new InspiroyRelWheelReport(data);
@@ -42,6 +49,12 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
 
             return new DeviceReport(data);
         }
+
+        private static void LogTiming(byte[] data)
+        {
+            if (Interlocked.Increment(ref loggedReports) <= 32)
+                Log.Debug("WH851 Timing", $"{System.Diagnostics.Stopwatch.GetTimestamp()} parser len={data.Length} raw={BitConverter.ToString(data)}");
+        }
     }
 
     public struct WH851BluetoothPenReport : ITabletReport, ITiltReport, IEraserReport
@@ -49,20 +62,20 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
         public WH851BluetoothPenReport(byte[] report)
         {
             Raw = report;
-            var isOfficialBleReport = report[0] == 0x08 && report.Length >= 12;
+            var isOfficialBleReport = report[0] == 0x08;
             var touching = report[1].IsBitSet(0);
             Position = new Vector2
             {
-                X = ReadCoordinate(report, 2, isOfficialBleReport ? 8 : -1),
-                Y = ReadCoordinate(report, 4, isOfficialBleReport ? 9 : -1)
+                X = ReadCoordinate(report, 2, isOfficialBleReport && report.Length > 8 ? 8 : -1),
+                Y = ReadCoordinate(report, 4, isOfficialBleReport && report.Length > 9 ? 9 : -1)
             };
             Pressure = Unsafe.ReadUnaligned<ushort>(ref report[6]);
             if (touching && Pressure < WH851Report.MinimumTouchPressure)
                 Pressure = WH851Report.MinimumTouchPressure;
             Tilt = new Vector2
             {
-                X = (sbyte)report[isOfficialBleReport ? 10 : 8],
-                Y = (sbyte)report[isOfficialBleReport ? 11 : 9]
+                X = (sbyte)(isOfficialBleReport ? (report.Length > 10 ? report[10] : 0) : report[8]),
+                Y = (sbyte)(isOfficialBleReport ? (report.Length > 11 ? report[11] : 0) : report[9])
             };
 
             PenButtons =
@@ -95,10 +108,10 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
             switch (data[1])
             {
                 case 0xe0:
-                    return new UCLogicAuxReport(data);
+                    return new WH851AuxReport(data);
                 case 0xe3:
                     // Group buttons, no way to use them properly for now
-                    return new UCLogicAuxReport(data);
+                    return new WH851AuxReport(data);
                 case 0xf1:
                     return new InspiroyRelWheelReport(data);
                 case 0x00:
@@ -145,5 +158,28 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
         public Vector2 Tilt { get; set; }
         public uint Pressure { get; set; }
         public bool[] PenButtons { get; set; }
+    }
+
+    public struct WH851AuxReport : IAuxReport
+    {
+        public WH851AuxReport(byte[] report)
+        {
+            Raw = report;
+            AuxButtons =
+            [
+                report[4].IsBitSet(0),
+                report[4].IsBitSet(1),
+                report[4].IsBitSet(2),
+                report[4].IsBitSet(3),
+                report[4].IsBitSet(4),
+                report[4].IsBitSet(5),
+                report[4].IsBitSet(6),
+                report[4].IsBitSet(7),
+                report[5].IsBitSet(0),
+            ];
+        }
+
+        public bool[] AuxButtons { get; set; }
+        public byte[] Raw { get; set; }
     }
 }

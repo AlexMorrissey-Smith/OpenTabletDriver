@@ -10,24 +10,41 @@ namespace OpenTabletDriver.Tests
         [InlineData(0, 0)]
         [InlineData(1, 0)]
         [InlineData(0, 1)]
-        public void MouseEventsRemainPlainMouseEvents(int currentButtonStates, int previousButtonStates)
+        public void ActiveApplicationMouseEventsStayPlainAndPostTabletPointer(int currentButtonStates, int previousButtonStates)
         {
             var semantics = MacOSMouseEventPolicy.Create(
                 currentButtonStates,
                 previousButtonStates,
-                elapsedSinceLastProximityMs: 0);
+                elapsedSinceLastProximityMs: 0,
+                targetKind: MacOSPointerTargetKind.ActiveApplication);
 
             Assert.False(semantics.ApplyTabletSubtypeToMouseEvent);
             Assert.True(semantics.PostTabletPointEvent);
         }
 
+        [Theory]
+        [InlineData(MacOSPointerTargetKind.BackgroundApplication)]
+        [InlineData(MacOSPointerTargetKind.SystemUi)]
+        public void SystemUiAndBackgroundMouseEventsRemainPlainWithoutTabletPointer(MacOSPointerTargetKind targetKind)
+        {
+            var semantics = MacOSMouseEventPolicy.Create(
+                currentButtonStates: 1,
+                previousButtonStates: 0,
+                elapsedSinceLastProximityMs: 0,
+                targetKind: targetKind);
+
+            Assert.False(semantics.ApplyTabletSubtypeToMouseEvent);
+            Assert.False(semantics.PostTabletPointEvent);
+        }
+
         [Fact]
-        public void IdlePlainMouseMoveCanAlsoPostProximityMetadata()
+        public void IdleMoveCanAlsoPostProximityMetadata()
         {
             var semantics = MacOSMouseEventPolicy.Create(
                 currentButtonStates: 0,
                 previousButtonStates: 0,
-                elapsedSinceLastProximityMs: MacOSMouseEventPolicy.ProximityExpiresDurationInMs + 1);
+                elapsedSinceLastProximityMs: MacOSMouseEventPolicy.ProximityExpiresDurationInMs + 1,
+                targetKind: MacOSPointerTargetKind.ActiveApplication);
 
             Assert.False(semantics.ApplyTabletSubtypeToMouseEvent);
             Assert.True(semantics.PostTabletPointEvent);

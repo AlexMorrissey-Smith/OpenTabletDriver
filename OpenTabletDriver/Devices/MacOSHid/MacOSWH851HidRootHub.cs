@@ -102,6 +102,50 @@ namespace OpenTabletDriver.Devices.MacOSHid
         private static bool IsWH851Product(int productId) =>
             productId == UsbProductId || productId == BluetoothProductId;
 
+        internal static byte[] CreateSyntheticBluetoothPenReport(long tabletX, long tabletY, double pressure, long buttons, double tiltX, double tiltY)
+        {
+            var x = ScaleTabletAxis(tabletX, MaxX);
+            var y = ScaleTabletAxis(tabletY, MaxY);
+            var pressureValue = (ushort)Math.Clamp((int)Math.Round(pressure * MaxPressure), 0, MaxPressure);
+            var tiltXValue = (sbyte)Math.Clamp((int)Math.Round(tiltX * 127), -128, 127);
+            var tiltYValue = (sbyte)Math.Clamp((int)Math.Round(tiltY * 127), -128, 127);
+
+            var report = new byte[10];
+            report[0] = 0x0a;
+            report[1] = 0x40;
+            if (pressureValue > 0 || (buttons & 0x01) != 0)
+                report[1] |= 0x01;
+            if ((buttons & 0x02) != 0)
+                report[1] |= 0x02;
+            if ((buttons & 0x04) != 0)
+                report[1] |= 0x04;
+            WriteUshort(report, 2, x);
+            WriteUshort(report, 4, y);
+            WriteUshort(report, 6, pressureValue);
+            report[8] = unchecked((byte)tiltXValue);
+            report[9] = unchecked((byte)tiltYValue);
+
+            return report;
+        }
+
+        private static ushort ScaleTabletAxis(long value, int max)
+        {
+            if (value <= 0)
+                return 0;
+
+            if (value <= max)
+                return (ushort)value;
+
+            // macOS may expose normalized 16-bit tablet coordinates instead of device coordinates.
+            return (ushort)Math.Clamp((int)Math.Round(value / (double)ushort.MaxValue * max), 0, max);
+        }
+
+        private static void WriteUshort(byte[] report, int offset, ushort value)
+        {
+            report[offset] = (byte)(value & 0xff);
+            report[offset + 1] = (byte)(value >> 8);
+        }
+
         private static void LogMatchedDevice(IntPtr device, int productId)
         {
             var locationId = IOHID.GetIntProperty(device, "LocationID");
@@ -522,7 +566,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
                             continue;
 
                         if (Interlocked.Increment(ref loggedReports) <= 8)
-                            Log.Debug("WH851 macOS HID", $"CoreBluetooth report: {BitConverter.ToString(report)}");
+                            Log.Debug("WH851 Timing", $"{Stopwatch.GetTimestamp()} BLE bridge read report={BitConverter.ToString(report)}");
 
                         EnqueueReport(report);
                     }
@@ -800,25 +844,14 @@ namespace OpenTabletDriver.Devices.MacOSHid
 
             private void EnqueueTabletPoint(IntPtr eventRef)
             {
-                var x = ScaleTabletAxis(CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointX), MaxX);
-                var y = ScaleTabletAxis(CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointY), MaxY);
-                var pressure = (ushort)Math.Clamp((int)Math.Round(CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventPointPressure) * MaxPressure), 0, MaxPressure);
-                var buttons = CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointButtons);
-                var tiltX = (sbyte)Math.Clamp((int)Math.Round(CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventTiltX) * 127), -128, 127);
-                var tiltY = (sbyte)Math.Clamp((int)Math.Round(CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventTiltY) * 127), -128, 127);
-
-                var report = new byte[10];
-                report[0] = 0x0a;
-                report[1] = 0x40;
-                if ((buttons & 0x02) != 0)
-                    report[1] |= 0x02;
-                if ((buttons & 0x04) != 0)
-                    report[1] |= 0x04;
-                WriteUshort(report, 2, x);
-                WriteUshort(report, 4, y);
-                WriteUshort(report, 6, pressure);
-                report[8] = unchecked((byte)tiltX);
-                report[9] = unchecked((byte)tiltY);
+                var report = CreateSyntheticBluetoothPenReport(
+                    CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointX),
+                    CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointY),
+                    CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventPointPressure),
+                    CoreGraphics.CGEventGetIntegerValueField(eventRef, CoreGraphics.kCGTabletEventPointButtons),
+                    CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventTiltX),
+                    CoreGraphics.CGEventGetDoubleValueField(eventRef, CoreGraphics.kCGTabletEventTiltY)
+                );
 
                 if (Interlocked.Increment(ref loggedSyntheticReports) <= 12)
                     Log.Debug("WH851 macOS HID", $"Synthetic report: {BitConverter.ToString(report)}");
@@ -830,24 +863,6 @@ namespace OpenTabletDriver.Devices.MacOSHid
             {
                 if (!reports.IsAddingCompleted)
                     reports.Add(report);
-            }
-
-            private static ushort ScaleTabletAxis(long value, int max)
-            {
-                if (value <= 0)
-                    return 0;
-
-                if (value <= max)
-                    return (ushort)value;
-
-                // macOS may expose normalized 16-bit tablet coordinates instead of device coordinates.
-                return (ushort)Math.Clamp((int)Math.Round(value / (double)ushort.MaxValue * max), 0, max);
-            }
-
-            private static void WriteUshort(byte[] report, int offset, ushort value)
-            {
-                report[offset] = (byte)(value & 0xff);
-                report[offset + 1] = (byte)(value >> 8);
             }
 
             private static void OnReport(IntPtr context, int result, IntPtr sender, int type, uint reportId, IntPtr report, nint reportLength)

@@ -21,6 +21,10 @@ namespace OpenTabletDriver.Desktop.Interop.Input
         private const ulong NSApplicationActivateAllWindows = 1UL << 0;
         private const ulong NSApplicationActivateIgnoringOtherApps = 1UL << 1;
 
+        private readonly IntPtr _workspaceClass = objc_getClass("NSWorkspace");
+        private readonly IntPtr _sharedWorkspaceSelector = sel_registerName("sharedWorkspace");
+        private readonly IntPtr _frontmostApplicationSelector = sel_registerName("frontmostApplication");
+        private readonly IntPtr _processIdentifierSelector = sel_registerName("processIdentifier");
         private readonly IntPtr _runningApplicationClass = objc_getClass("NSRunningApplication");
         private readonly IntPtr _runningApplicationWithPidSelector = sel_registerName("runningApplicationWithProcessIdentifier:");
         private readonly IntPtr _activateWithOptionsSelector = sel_registerName("activateWithOptions:");
@@ -29,6 +33,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
         private CGPoint _cachedLocation;
         private IntPtr _cachedWindowElement;
         private int _cachedPid;
+        private MacOSPointerTargetKind _cachedTargetKind;
         private long _cachedTimestamp;
         private long _lastUpdateQueuedTimestamp;
         private int _updateInProgress;
@@ -55,6 +60,25 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                 Volatile.Write(ref _updateInProgress, 0);
         }
 
+        public MacOSPointerTargetKind GetCachedTargetKind(CGPoint location)
+        {
+            lock (_cacheLock)
+            {
+                if (_cachedPid <= 0)
+                    return MacOSPointerTargetKind.Unknown;
+
+                if (ElapsedMilliseconds(_cachedTimestamp, Stopwatch.GetTimestamp()) > TargetCacheMaxAgeInMs)
+                    return MacOSPointerTargetKind.Unknown;
+
+                var dx = _cachedLocation.x - location.x;
+                var dy = _cachedLocation.y - location.y;
+                if (dx * dx + dy * dy > TargetCacheTolerance * TargetCacheTolerance)
+                    return MacOSPointerTargetKind.Unknown;
+
+                return _cachedTargetKind;
+            }
+        }
+
         public void ActivateAt(CGPoint location)
         {
             if (Volatile.Read(ref _disposed) != 0)
@@ -64,17 +88,21 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             var started = Stopwatch.GetTimestamp();
             try
             {
+                MacOSPointerTargetKind targetKind;
                 if (!TryGetWindowOwnerAt(location, out var pid))
                 {
-                    if (!TryGetCachedTarget(location, out pid, out var cachedWindowElement))
+                    if (!TryGetCachedTarget(location, out pid, out var cachedWindowElement, out targetKind))
                         return;
 
                     if (cachedWindowElement != IntPtr.Zero)
                         CoreFoundation.CFRelease(cachedWindowElement);
                 }
+                else
+                    targetKind = ClassifyTarget(pid);
 
-                if (IsSystemUiTarget(pid, out var processName))
+                if (targetKind == MacOSPointerTargetKind.SystemUi)
                 {
+                    _ = IsSystemUiTarget(pid, out var processName);
                     if (Interlocked.Exchange(ref _loggedSystemUiSkip, 1) == 0)
                         Log.Debug("macOS Window Activator", $"Skipping explicit app activation for system UI target pid={pid} process={processName}.");
                     return;
@@ -98,21 +126,26 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             if (Volatile.Read(ref _disposed) != 0)
                 return;
 
-            if (!TryGetCachedTarget(location, out var pid, out var windowElement))
+            if (!TryGetCachedTarget(location, out var pid, out var windowElement, out var targetKind))
                 return;
 
             var pool = objc_autoreleasePoolPush();
             var started = Stopwatch.GetTimestamp();
             try
             {
-                if (IsSystemUiTarget(pid, out var processName))
+                if (targetKind == MacOSPointerTargetKind.SystemUi)
                 {
+                    _ = IsSystemUiTarget(pid, out var processName);
                     if (Interlocked.Exchange(ref _loggedSystemUiSkip, 1) == 0)
                         Log.Debug("macOS Window Activator", $"Skipping explicit app activation for system UI target pid={pid} process={processName}.");
                     return;
                 }
 
+                if (targetKind != MacOSPointerTargetKind.BackgroundApplication)
+                    return;
+
                 ActivateApplication(pid);
+                MarkCachedTargetKind(pid, MacOSPointerTargetKind.ActiveApplication);
                 if (Interlocked.Exchange(ref _loggedActivationResult, 1) == 0)
                     Log.Debug("macOS Window Activator", $"Activated cached target pid={pid} elapsed={ElapsedMilliseconds(started, Stopwatch.GetTimestamp()):0.##}ms.");
             }
@@ -190,6 +223,8 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
         private void CacheTarget(CGPoint location, int pid, IntPtr windowElement, bool retainWindowElement)
         {
+            var targetKind = ClassifyTarget(pid);
+
             lock (_cacheLock)
             {
                 if (_cachedWindowElement != IntPtr.Zero)
@@ -200,14 +235,25 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                     ? CoreFoundation.CFRetain(windowElement)
                     : windowElement;
                 _cachedPid = pid;
+                _cachedTargetKind = targetKind;
                 _cachedTimestamp = Stopwatch.GetTimestamp();
             }
         }
 
-        private bool TryGetCachedTarget(CGPoint location, out int pid, out IntPtr windowElement)
+        private void MarkCachedTargetKind(int pid, MacOSPointerTargetKind targetKind)
+        {
+            lock (_cacheLock)
+            {
+                if (_cachedPid == pid)
+                    _cachedTargetKind = targetKind;
+            }
+        }
+
+        private bool TryGetCachedTarget(CGPoint location, out int pid, out IntPtr windowElement, out MacOSPointerTargetKind targetKind)
         {
             pid = 0;
             windowElement = IntPtr.Zero;
+            targetKind = MacOSPointerTargetKind.Unknown;
 
             lock (_cacheLock)
             {
@@ -223,6 +269,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                     return false;
 
                 pid = _cachedPid;
+                targetKind = _cachedTargetKind;
                 if (_cachedWindowElement != IntPtr.Zero)
                     windowElement = CoreFoundation.CFRetain(_cachedWindowElement);
                 return true;
@@ -402,6 +449,53 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             var app = objc_msgSend_IntPtr_int(_runningApplicationClass, _runningApplicationWithPidSelector, pid);
             if (app != IntPtr.Zero)
                 _ = objc_msgSend_bool_ulong(app, _activateWithOptionsSelector, NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps);
+        }
+
+        private MacOSPointerTargetKind ClassifyTarget(int pid)
+        {
+            if (pid <= 0)
+                return MacOSPointerTargetKind.Unknown;
+
+            if (IsSystemUiTarget(pid, out _))
+                return MacOSPointerTargetKind.SystemUi;
+
+            if (!TryGetFrontmostApplicationPid(out var activePid))
+                return MacOSPointerTargetKind.Unknown;
+
+            return activePid == pid
+                ? MacOSPointerTargetKind.ActiveApplication
+                : MacOSPointerTargetKind.BackgroundApplication;
+        }
+
+        private bool TryGetFrontmostApplicationPid(out int pid)
+        {
+            pid = 0;
+            if (_workspaceClass == IntPtr.Zero)
+                return false;
+
+            var pool = objc_autoreleasePoolPush();
+            try
+            {
+                var workspace = objc_msgSend_IntPtr(_workspaceClass, _sharedWorkspaceSelector);
+                if (workspace == IntPtr.Zero)
+                    return false;
+
+                var application = objc_msgSend_IntPtr(workspace, _frontmostApplicationSelector);
+                if (application == IntPtr.Zero)
+                    return false;
+
+                pid = objc_msgSend_int(application, _processIdentifierSelector);
+                return pid > 0;
+            }
+            catch
+            {
+                pid = 0;
+                return false;
+            }
+            finally
+            {
+                objc_autoreleasePoolPop(pool);
+            }
         }
 
         private static bool IsSystemUiTarget(int pid, out string processName)

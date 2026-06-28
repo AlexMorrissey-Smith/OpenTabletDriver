@@ -1,4 +1,5 @@
 using OpenTabletDriver.Configurations.Parsers.Huion;
+using OpenTabletDriver.Devices.MacOSHid;
 using OpenTabletDriver.Plugin.Tablet;
 using OpenTabletDriver.Plugin.Tablet.Wheel;
 using Xunit;
@@ -74,6 +75,39 @@ namespace OpenTabletDriver.Tests
         }
 
         [Fact]
+        public void MacOSHidSyntheticTabletPointPressureSetsTouchBit()
+        {
+            var report = MacOSWH851HidRootHub.CreateSyntheticBluetoothPenReport(
+                tabletX: 0,
+                tabletY: 0,
+                pressure: 1,
+                buttons: 0,
+                tiltX: 0,
+                tiltY: 0);
+
+            Assert.Equal(0x0a, report[0]);
+            Assert.Equal(0x40 | 0x01, report[1]);
+            Assert.Equal(0xff, report[6]);
+            Assert.Equal(0x3f, report[7]);
+        }
+
+        [Fact]
+        public void MacOSHidSyntheticTabletPointLeftButtonSetsTouchBitWithoutPressure()
+        {
+            var report = MacOSWH851HidRootHub.CreateSyntheticBluetoothPenReport(
+                tabletX: 0,
+                tabletY: 0,
+                pressure: 0,
+                buttons: 0x01,
+                tiltX: 0,
+                tiltY: 0);
+
+            Assert.Equal(0x40 | 0x01, report[1]);
+            Assert.Equal(0x00, report[6]);
+            Assert.Equal(0x00, report[7]);
+        }
+
+        [Fact]
         public void BluetoothParserParsesOfficialBlePenReport()
         {
             var parser = new WH851BluetoothReportParser();
@@ -97,6 +131,29 @@ namespace OpenTabletDriver.Tests
             Assert.Equal(-2, tabletReport.Tilt.X);
             Assert.Equal(5, tabletReport.Tilt.Y);
             Assert.True(tabletReport.PenButtons[0]);
+        }
+
+        [Fact]
+        public void BluetoothParserParsesShortOfficialBlePenReport()
+        {
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x81,
+                0x34, 0x12,
+                0x78, 0x56,
+                0xbc, 0x0a,
+                0x01, 0x02
+            ]);
+
+            var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
+            Assert.Equal(0x011234, tabletReport.Position.X);
+            Assert.Equal(0x025678, tabletReport.Position.Y);
+            Assert.Equal(0x0abcu, tabletReport.Pressure);
+            Assert.Equal(0, tabletReport.Tilt.X);
+            Assert.Equal(0, tabletReport.Tilt.Y);
         }
 
         [Fact]
@@ -210,6 +267,29 @@ namespace OpenTabletDriver.Tests
 
             var wheelReport = Assert.IsAssignableFrom<IRelativeWheelReport>(report);
             Assert.Equal([expectedDelta], wheelReport.AnalogDeltas);
+        }
+
+        [Fact]
+        public void UsbParserParsesNineAuxButtons()
+        {
+            var parser = new WH851UsbReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0xe0,
+                0x00, 0x00,
+                0x01, 0x01,
+                0x00, 0x00,
+                0x00, 0x00,
+                0x00,
+                0x00
+            ]);
+
+            var auxReport = Assert.IsType<WH851AuxReport>(report);
+            Assert.Equal(9, auxReport.AuxButtons.Length);
+            Assert.True(auxReport.AuxButtons[0]);
+            Assert.True(auxReport.AuxButtons[8]);
         }
 
         [Theory]

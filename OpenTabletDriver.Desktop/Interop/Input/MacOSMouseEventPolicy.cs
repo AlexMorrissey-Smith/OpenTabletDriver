@@ -2,6 +2,14 @@ using OpenTabletDriver.Native.OSX.Input;
 
 namespace OpenTabletDriver.Desktop.Interop.Input
 {
+    public enum MacOSPointerTargetKind
+    {
+        Unknown,
+        ActiveApplication,
+        BackgroundApplication,
+        SystemUi
+    }
+
     public readonly record struct MacOSMouseEventSemantics(
         bool ApplyTabletSubtypeToMouseEvent,
         bool PostTabletPointEvent,
@@ -13,11 +21,17 @@ namespace OpenTabletDriver.Desktop.Interop.Input
     {
         public const int ProximityExpiresDurationInMs = 200;
 
-        public static MacOSMouseEventSemantics Create(int currentButtonStates, int previousButtonStates, long elapsedSinceLastProximityMs)
+        public static MacOSMouseEventSemantics Create(
+            int currentButtonStates,
+            int previousButtonStates,
+            long elapsedSinceLastProximityMs,
+            MacOSPointerTargetKind targetKind = MacOSPointerTargetKind.Unknown
+        )
         {
             return new MacOSMouseEventSemantics(
                 ApplyTabletSubtypeToMouseEvent: false,
-                PostTabletPointEvent: true,
+                PostTabletPointEvent: targetKind is not MacOSPointerTargetKind.BackgroundApplication and
+                                      not MacOSPointerTargetKind.SystemUi,
                 PostProximityEvent: currentButtonStates == 0 &&
                                     previousButtonStates == 0 &&
                                     elapsedSinceLastProximityMs > ProximityExpiresDurationInMs,

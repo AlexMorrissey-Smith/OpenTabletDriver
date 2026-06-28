@@ -35,6 +35,17 @@ namespace OpenTabletDriver.Tests.Binding
         }
 
         [Fact]
+        public void WH851UsbIdentifierKeepsInitializationString()
+        {
+            var configuration = GetWH851Configuration();
+            var usbIdentifier = configuration.DigitizerIdentifiers.Single(identifier => identifier.InputReportLength == 12);
+
+            Assert.Equal("OpenTabletDriver.Configurations.Parsers.Huion.WH851UsbReportParser", usbIdentifier.ReportParser);
+            Assert.Equal("GM001_T21f_\\d{6}$", usbIdentifier.DeviceStrings![201]);
+            Assert.Equal([200], usbIdentifier.InitializationStrings);
+        }
+
+        [Fact]
         public void WH851DefaultsBindCenterButtonAndWheelModeActions()
         {
             var configuration = GetWH851Configuration();
@@ -152,6 +163,22 @@ namespace OpenTabletDriver.Tests.Binding
             Assert.Equal(1, binding.Presses);
         }
 
+        [Fact]
+        public void WH851RawUsbModeButtonInvokesAuxNineBinding()
+        {
+            var parser = new WH851UsbReportParser();
+            var bindingHandler = CreateWH851BindingHandler();
+            var binding = new CountingBinding();
+            bindingHandler.AuxButtons[8] = new BindingState
+            {
+                Binding = binding
+            };
+
+            bindingHandler.HandleBinding(parser.Parse(CreateWH851AuxReport(0x00, 0x01)));
+
+            Assert.Equal(1, binding.Presses);
+        }
+
         private static TabletConfiguration GetWH851Configuration()
         {
             return TestData.DeviceConfigurationProvider.TabletConfigurations
@@ -171,6 +198,18 @@ namespace OpenTabletDriver.Tests.Binding
             0xf1,
             0x01, 0x01,
             0x00, wheelData,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00,
+            0x00
+        ];
+
+        private static byte[] CreateWH851AuxReport(byte buttonsLow, byte buttonsHigh) =>
+        [
+            0x08,
+            0xe0,
+            0x00, 0x00,
+            buttonsLow, buttonsHigh,
             0x00, 0x00,
             0x00, 0x00,
             0x00,
