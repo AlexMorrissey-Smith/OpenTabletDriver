@@ -1,11 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.Numerics;
-using System.Threading;
 using OpenTabletDriver.Desktop.Interop.Input.Keyboard;
 using OpenTabletDriver.Native.OSX;
 using OpenTabletDriver.Native.OSX.Input;
-using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Platform.Pointer;
 
 namespace OpenTabletDriver.Desktop.Interop.Input
@@ -15,6 +13,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
     public abstract class MacOSVirtualMouse : IMouseButtonHandler, IMouseScrollHandler, ISynchronousPointer, ITiltHandler, IEraserHandler, IPressureHandler
     {
         private const int DoubleClickMoveTolerance = 8;
+        private const int ProximityExpiresDurationInMs = 200;
 
         // The capabilityMask is essential for Adobe software to recognize tablet pressure sensitivity,
         // a feature specific to Wacom devices.
@@ -45,22 +44,14 @@ namespace OpenTabletDriver.Desktop.Interop.Input
         private CGMouseButton _lastButton;
         private Vector2 _lastMouseDownPosition;
         private bool _mouseMovedSinceLastDown;
-        private MacOSPointerTargetKind _mouseEventTargetKind = MacOSPointerTargetKind.Unknown;
-        private MacOSPointerTargetKind _forcedPlainMouseTargetKind = MacOSPointerTargetKind.Unknown;
-        private bool _forcePlainMouseUntilRelease;
-        private CGMouseButton _mouseEventButton;
-        private static int _timingLogs;
 
         private int _clickState;
         private readonly Stopwatch _stopWatch;
         private readonly Stopwatch _doubleClickStopWatch;
-        private readonly IntPtr _mouseEventSource;
-        private readonly IntPtr _tabletEventSource;
+        private readonly IntPtr _eventSource;
         private IntPtr _mouseEvent;
-        private CGEventType _mouseEventType;
         private readonly double _doubleClickIntervalInMs;
         private readonly MacOSVirtualKeyboard _keyboard;
-        private readonly MacOSWindowActivator _windowActivator;
 
         public MacOSVirtualMouse()
         {
@@ -68,19 +59,15 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             _doubleClickStopWatch = new Stopwatch();
             _stopWatch = new Stopwatch();
             _stopWatch.Start();
-            _mouseEventSource = CGEventSourceCreate(CGEventSourceStateHIDSystemState);
-            _tabletEventSource = CGEventSourceCreate(CGEventSourceStatePrivate);
-            CGEventSourceSetUserData(_mouseEventSource, DeviceId);
-            CGEventSourceSetUserData(_tabletEventSource, DeviceId);
-            _mouseEvent = IntPtr.Zero;
+            _eventSource = CGEventSourceCreate(CGEventSourceStatePrivate);
+            CGEventSourceSetUserData(_eventSource, DeviceId);
+            _mouseEvent = CGEventCreate(_eventSource);
             _keyboard = DesktopInterop.VirtualKeyboard as MacOSVirtualKeyboard
                         ?? throw new InvalidOperationException("Could not get virtual keyboard");
-            _windowActivator = new MacOSWindowActivator();
         }
 
         public void MouseDown(MouseButton button)
         {
-            LogTiming($"MouseDown button={button}");
             if (!_pendingX.HasValue)
                 QueuePendingPositionFromSystem();
             SetButtonState(ref _currButtonStates, ToCGMouseButton(button), true);
@@ -88,7 +75,6 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
         public void MouseUp(MouseButton button)
         {
-            LogTiming($"MouseUp button={button}");
             if (!_pendingX.HasValue)
                 QueuePendingPositionFromSystem();
             SetButtonState(ref _currButtonStates, ToCGMouseButton(button), false);
@@ -117,19 +103,14 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                 // can send drag here
                 var lastButtonSet = IsButtonSet(_currButtonStates, _lastButton);
                 var cgEventType = ToDragCGEventType(_lastButton, lastButtonSet);
-                ResetMouseEvent(cgEventType, _lastButton);
+                CGEventSetType(_mouseEvent, cgEventType);
                 SetPendingPosition(_mouseEvent, position.X, position.Y);
-                var location = CGEventGetLocation(_mouseEvent);
-                _mouseEventTargetKind = ResolveTargetKind(location);
-                if (_currButtonStates == 0)
-                    _windowActivator.QueueTargetUpdate(location);
-                ApplyMouseEventValues();
+                ApplyTabletValues();
                 PostEvent();
             }
             if (_scrollDeltaX.HasValue || _scrollDeltaY.HasValue)
             {
-                var scrollEventRef = CGEventCreateScrollWheelEvent2(_mouseEventSource, CGScrollEventUnit.kCGScrollEventUnitPixel, 2, _scrollDeltaX ?? 0, _scrollDeltaY ?? 0, 0);
-                ApplyEventFlags(scrollEventRef);
+                var scrollEventRef = CGEventCreateScrollWheelEvent2(IntPtr.Zero, CGScrollEventUnit.kCGScrollEventUnitPixel, 2, _scrollDeltaX ?? 0, _scrollDeltaY ?? 0, 0);
                 CGEventPost(CGEventTapLocation.kCGHIDEventTap, scrollEventRef);
                 CFRelease(scrollEventRef);
                 _scrollDeltaX = _scrollDeltaY = null;
@@ -141,10 +122,9 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             // send a key up for all currently held keys
             if (_currButtonStates > 0)
             {
-                var previousButtonStates = _currButtonStates;
-                _currButtonStates = 0;
-                ProcessKeyStates(previousButtonStates, 0);
+                ProcessKeyStates(_currButtonStates, 0);
                 _prevButtonStates = 0;
+                _currButtonStates = 0;
             }
         }
 
@@ -197,7 +177,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                 ? NSPointingDeviceType.Eraser
                 : NSPointingDeviceType.Pen;
 
-            var proximityEvent = CGEventCreate(_tabletEventSource);
+            var proximityEvent = CGEventCreate(_eventSource);
             CGEventSetType(proximityEvent, CGEventType.kCGEventTabletProximity);
             CGEventSetIntegerValueField(proximityEvent, CGEventField.tabletProximityEventEnterProximity, 1);
             CGEventSetIntegerValueField(proximityEvent, CGEventField.tabletProximityEventPointerType, (long)pointerType);
@@ -256,36 +236,21 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                         }
                     }
 
-                    var cgEventType = ToNoDragCGEventType(button, currState);
-                    ResetMouseEvent(cgEventType, button);
+                    // prepare the mouse event, we reset it here in case
+                    // it's a relative event
                     ResetPendingPosition(_mouseEvent);
+
+                    // propagate pending position to mouseEvent
+                    var cgEventType = ToNoDragCGEventType(button, currState);
+                    CGEventSetType(_mouseEvent, cgEventType);
                     if (DrainPendingPosition() is { } position)
                     {
                         SetPendingPosition(_mouseEvent, position.X, position.Y);
                     }
-
-                    var location = CGEventGetLocation(_mouseEvent);
-                    _mouseEventTargetKind = ResolveTargetKind(location);
-                    if (currState)
-                    {
-                        _windowActivator.QueueTargetUpdate(location);
-                        if (!_forcePlainMouseUntilRelease && IsPlainMouseTarget(_mouseEventTargetKind))
-                        {
-                            _forcePlainMouseUntilRelease = true;
-                            _forcedPlainMouseTargetKind = _mouseEventTargetKind;
-                        }
-
-                        _mouseEventTargetKind = ResolveTargetKind(location);
-                    }
                     CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventButtonNumber, i);
                     CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventClickState, _clickState); // clickState should be set to 1 (or more) during up, down, and drag events
-                    ApplyMouseEventValues();
+                    ApplyTabletValues();
                     PostEvent();
-                    if (!currState && currButtonStates == 0)
-                    {
-                        _forcePlainMouseUntilRelease = false;
-                        _forcedPlainMouseTargetKind = MacOSPointerTargetKind.Unknown;
-                    }
                     _lastButton = button;
                 }
             }
@@ -293,8 +258,7 @@ namespace OpenTabletDriver.Desktop.Interop.Input
             if (currButtonStates == 0)
             {
                 // no buttons are pressed, reset button to 0
-                if (_mouseEvent != IntPtr.Zero)
-                    CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventButtonNumber, 0);
+                CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventButtonNumber, 0);
             }
         }
 
@@ -348,165 +312,88 @@ namespace OpenTabletDriver.Desktop.Interop.Input
                 buttonStates &= ~(1 << (int)button);
         }
 
-        private void ApplyMouseEventValues()
+        private void ApplyTabletValues()
         {
-            var pressure = _pressure.GetValueOrDefault(0f);
-            CGEventSetDoubleValueField(_mouseEvent, CGEventField.mouseEventPressure, pressure);
-            CGEventSetDoubleValueField(_mouseEvent, CGEventField.tabletEventPointPressure, pressure);
-            CGEventSetIntegerValueField(_mouseEvent, CGEventField.tabletEventPointButtons, MacOSMouseEventPolicy.GetTabletButtons(_currButtonStates));
+            // Send proximity events if there are no reports for a while.
+            if (_currButtonStates == 0 && _prevButtonStates == 0)
+            {
+                var elapsed = _stopWatch.ElapsedMilliseconds;
+                _stopWatch.Restart();
+                if (elapsed > ProximityExpiresDurationInMs)
+                {
+                    var pointerType = _isEraser ?? false
+                        ? NSPointingDeviceType.Eraser
+                        : NSPointingDeviceType.Pen;
+
+                    PostProximityEvent();
+
+                    CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventSubtype, (long)CGMouseEventSubtype.TabletProximity);
+                    CGEventSetIntegerValueField(_mouseEvent, CGEventField.tabletProximityEventEnterProximity, 1);
+                    CGEventSetIntegerValueField(_mouseEvent, CGEventField.tabletProximityEventPointerType, (long)pointerType);
+                    CGEventSetIntegerValueField(_mouseEvent, CGEventField.tabletProximityEventCapabilityMask, (long)TabletCapabilityMask);
+                    CGEventSetIntegerValueField(_mouseEvent, CGEventField.tabletProximityEventDeviceID, DeviceId);
+                    CGEventSetIntegerValueField(_mouseEvent, CGEventField.tabletProximityEventVendorPointerType, VendorPointerType);
+
+                    return;
+                }
+            }
+
+            // Qt < 5.9 interprets kCGTabletEventPointButtons as left, right, middle mouse click.
+            // see https://codereview.qt-project.org/c/qt/qtbase/+/180717
+            int buttons = 0;
+            if (IsButtonSet(_currButtonStates, CGMouseButton.kCGMouseButtonLeft))
+                buttons |= 1;
+            else if (IsButtonSet(_currButtonStates, CGMouseButton.kCGMouseButtonRight))
+                buttons |= 2;
+            else if (IsButtonSet(_currButtonStates, CGMouseButton.kCGMouseButtonCenter))
+                buttons |= 4;
+
+            CGEventSetDoubleValueField(_mouseEvent, CGEventField.mouseEventPressure, _pressure ?? 1.0);
+
+            CGEventSetIntegerValueField(_mouseEvent, CGEventField.mouseEventSubtype, (long)CGMouseEventSubtype.TabletPoint);
+            // The fields of tabletEvent can only be set after the subtype is defined.
+            CGEventSetIntegerValueField(_mouseEvent, CGEventField.tabletEventPointButtons, buttons);
             CGEventSetIntegerValueField(_mouseEvent, CGEventField.tabletEventDeviceID, DeviceId);
+            CGEventSetDoubleValueField(_mouseEvent, CGEventField.tabletEventPointPressure, _pressure ?? 1.0);
+
             if (_tilt != null)
             {
                 CGEventSetDoubleValueField(_mouseEvent, CGEventField.tabletEventTiltX, _tilt.Value.X / 90.0);
-                CGEventSetDoubleValueField(_mouseEvent, CGEventField.tabletEventTiltY, -_tilt.Value.Y / 90.0);
-            }
-            ApplyEventFlags(_mouseEvent);
-        }
-
-        private void ApplyPressureMouseEventValues(IntPtr mouseEvent)
-        {
-            var location = CGEventGetLocation(mouseEvent);
-            var pressure = _pressure.GetValueOrDefault(0f);
-            CGEventSetIntegerValueField(mouseEvent, CGEventField.mouseEventSubtype, (long)CGMouseEventSubtype.TabletPoint);
-            CGEventSetDoubleValueField(mouseEvent, CGEventField.mouseEventPressure, pressure);
-            CGEventSetDoubleValueField(mouseEvent, CGEventField.tabletEventPointPressure, pressure);
-            CGEventSetIntegerValueField(mouseEvent, CGEventField.tabletEventPointX, (long)Math.Round(location.x));
-            CGEventSetIntegerValueField(mouseEvent, CGEventField.tabletEventPointY, (long)Math.Round(location.y));
-            CGEventSetIntegerValueField(mouseEvent, CGEventField.tabletEventPointButtons, MacOSMouseEventPolicy.GetTabletButtons(_currButtonStates));
-            CGEventSetIntegerValueField(mouseEvent, CGEventField.tabletEventDeviceID, DeviceId);
-            if (_tilt != null)
-            {
-                CGEventSetDoubleValueField(mouseEvent, CGEventField.tabletEventTiltX, _tilt.Value.X / 90.0);
-                CGEventSetDoubleValueField(mouseEvent, CGEventField.tabletEventTiltY, -_tilt.Value.Y / 90.0);
-            }
-            ApplyEventFlags(mouseEvent);
-        }
-
-        private void PostTabletValues(CGPoint location)
-        {
-            long elapsed = 0;
-            if (_currButtonStates == 0 && _prevButtonStates == 0)
-            {
-                elapsed = _stopWatch.ElapsedMilliseconds;
-                _stopWatch.Restart();
-            }
-
-            var semantics = MacOSMouseEventPolicy.Create(_currButtonStates, _prevButtonStates, elapsed);
-            if (semantics.PostProximityEvent)
-                PostProximityEvent();
-
-            if (!semantics.PostTabletPointEvent)
-                return;
-
-            var tabletEvent = CGEventCreate(_tabletEventSource);
-            CGEventSetType(tabletEvent, CGEventType.kCGEventTabletPointer);
-            CGEventSetLocation(tabletEvent, location);
-            CGEventSetIntegerValueField(tabletEvent, CGEventField.tabletEventPointButtons, semantics.TabletButtons);
-            CGEventSetIntegerValueField(tabletEvent, CGEventField.tabletEventDeviceID, DeviceId);
-            CGEventSetDoubleValueField(tabletEvent, CGEventField.tabletEventPointPressure, _pressure ?? 1.0);
-
-            if (_tilt != null)
-            {
-                CGEventSetDoubleValueField(tabletEvent, CGEventField.tabletEventTiltX, _tilt.Value.X / 90.0);
                 // TiltY is inverted on MacOS
                 // see https://github.com/chromium/chromium/blob/62f1a92b04c1172431a64d581be9e64742c81576/content/browser/renderer_host/input/web_input_event_builders_mac.mm#L431
-                CGEventSetDoubleValueField(tabletEvent, CGEventField.tabletEventTiltY, -_tilt.Value.Y / 90.0);
+                CGEventSetDoubleValueField(_mouseEvent, CGEventField.tabletEventTiltY, -_tilt.Value.Y / 90.0);
             }
 
-            ApplyEventFlags(tabletEvent);
-            CGEventPost(CGEventTapLocation.kCGHIDEventTap, tabletEvent);
-            CFRelease(tabletEvent);
-        }
-
-        private void ApplyEventFlags(IntPtr eventRef)
-        {
             // This uses an undocumented flag that tells the system to automatically include the event flags in the event.
             // It's a better approach than fetching the active event flags ourselves, as doing so can introduce a race condition
             // (e.g., if a modifier key is released after we check its status but before the event is posted).
             // However, this flag has not effects for synthetic keyboard events, so we manually set the flags if there are modifiers bindings.
 
             if (_keyboard.getCurrentFlags() != 0)
-                CGEventSetFlags(eventRef, _keyboard.getCurrentFlags());
+                CGEventSetFlags(_mouseEvent, _keyboard.getCurrentFlags());
             else
-                CGEventSetFlags(eventRef, ~0U);
+                CGEventSetFlags(_mouseEvent, ~0U);
         }
 
         private void PostEvent()
         {
-            var location = CGEventGetLocation(_mouseEvent);
-            if (ShouldWarpCursor(_mouseEventType))
-                _ = CGWarpMouseCursorPosition(location);
-            LogTiming($"CGEventPost type={_mouseEventType} target={_mouseEventTargetKind} pressure={_pressure.GetValueOrDefault(0f):0.###} buttons=0x{_currButtonStates:X}");
             CGEventPost(CGEventTapLocation.kCGHIDEventTap, _mouseEvent);
             // Fields in a CGEvent are stored in a union determined by the event type,
             // and they cannot be safely reused.
             CFRelease(_mouseEvent);
-            _mouseEvent = IntPtr.Zero;
-            PostTabletValues(location);
-        }
-
-        private void ResetMouseEvent(CGEventType eventType, CGMouseButton button)
-        {
-            if (_mouseEvent != IntPtr.Zero)
-                CFRelease(_mouseEvent);
-
-            _mouseEventType = eventType;
-            _mouseEventButton = button;
-            _mouseEvent = CGEventCreateMouseEvent(_mouseEventSource, eventType, new CGPoint(0, 0), button);
-            _mouseEventTargetKind = MacOSPointerTargetKind.Unknown;
-        }
-
-        private void PostPressureMouseEvent(CGPoint location)
-        {
-            var pressureEvent = CGEventCreateMouseEvent(_mouseEventSource, _mouseEventType, location, _mouseEventButton);
-            CGEventSetIntegerValueField(pressureEvent, CGEventField.mouseEventButtonNumber, (long)_mouseEventButton);
-            CGEventSetIntegerValueField(pressureEvent, CGEventField.mouseEventClickState, _clickState);
-            ApplyPressureMouseEventValues(pressureEvent);
-            LogTiming($"CGEventPost pressure-shadow type={_mouseEventType} subtype={CGMouseEventSubtype.TabletPoint} target={_mouseEventTargetKind} pressure={_pressure.GetValueOrDefault(0f):0.###} buttons=0x{_currButtonStates:X}");
-            CGEventPost(CGEventTapLocation.kCGHIDEventTap, pressureEvent);
-            CFRelease(pressureEvent);
-        }
-
-        private MacOSPointerTargetKind ResolveTargetKind(CGPoint location) =>
-            _forcePlainMouseUntilRelease ? _forcedPlainMouseTargetKind : _windowActivator.GetCachedTargetKind(location);
-
-        private static bool IsPlainMouseTarget(MacOSPointerTargetKind targetKind) =>
-            targetKind is MacOSPointerTargetKind.BackgroundApplication or MacOSPointerTargetKind.SystemUi;
-
-        private static bool ShouldWarpCursor(CGEventType eventType)
-        {
-            return IsPointerMotionEvent(eventType);
-        }
-
-        private static bool IsPointerMotionEvent(CGEventType eventType)
-        {
-            return eventType is CGEventType.kCGEventMouseMoved or
-                                CGEventType.kCGEventLeftMouseDragged or
-                                CGEventType.kCGEventRightMouseDragged or
-                                CGEventType.kCGEventOtherMouseDragged;
-        }
-
-        private static void LogTiming(string message)
-        {
-            if (Interlocked.Increment(ref _timingLogs) <= 64)
-                Log.Debug("WH851 Timing", $"{Stopwatch.GetTimestamp()} {message}");
+            _mouseEvent = CGEventCreate(_eventSource);
         }
 
         ~MacOSVirtualMouse()
         {
-            if (_mouseEventSource != IntPtr.Zero)
+            if (_eventSource != IntPtr.Zero)
             {
-                CFRelease(_mouseEventSource);
-            }
-            if (_tabletEventSource != IntPtr.Zero)
-            {
-                CFRelease(_tabletEventSource);
+                CFRelease(_eventSource);
             }
             if (_mouseEvent != IntPtr.Zero)
             {
                 CFRelease(_mouseEvent);
             }
-            _windowActivator?.Dispose();
         }
     }
 }

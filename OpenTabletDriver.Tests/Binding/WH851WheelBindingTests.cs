@@ -35,14 +35,11 @@ namespace OpenTabletDriver.Tests.Binding
         }
 
         [Fact]
-        public void WH851UsbIdentifierKeepsInitializationString()
+        public void WH851DoesNotClaimUsbIdentifier()
         {
             var configuration = GetWH851Configuration();
-            var usbIdentifier = configuration.DigitizerIdentifiers.Single(identifier => identifier.InputReportLength == 12);
 
-            Assert.Equal("OpenTabletDriver.Configurations.Parsers.Huion.WH851UsbReportParser", usbIdentifier.ReportParser);
-            Assert.Equal("GM001_T21f_\\d{6}$", usbIdentifier.DeviceStrings![201]);
-            Assert.Equal([200], usbIdentifier.InitializationStrings);
+            Assert.DoesNotContain(configuration.DigitizerIdentifiers, identifier => identifier.InputReportLength == 12);
         }
 
         [Fact]
@@ -127,107 +124,10 @@ namespace OpenTabletDriver.Tests.Binding
             Assert.Equal(1, pointer.Flushes);
         }
 
-        [Fact]
-        public void WH851RawWheelReportInvokesClockwiseBinding()
-        {
-            var parser = new WH851UsbReportParser();
-            var bindingHandler = CreateWH851BindingHandler();
-            var binding = new CountingBinding();
-            bindingHandler.Wheels[0].ClockwiseRotation = new DeltaThresholdBindingState
-            {
-                Binding = binding,
-                ActivationThreshold = 15,
-                IsNegativeThreshold = false
-            };
-
-            bindingHandler.HandleBinding(parser.Parse(CreateWH851WheelReport(0x01)));
-
-            Assert.Equal(1, binding.Presses);
-        }
-
-        [Fact]
-        public void WH851RawWheelReportInvokesCounterClockwiseBinding()
-        {
-            var parser = new WH851UsbReportParser();
-            var bindingHandler = CreateWH851BindingHandler();
-            var binding = new CountingBinding();
-            bindingHandler.Wheels[0].CounterClockwiseRotation = new DeltaThresholdBindingState
-            {
-                Binding = binding,
-                ActivationThreshold = 15,
-                IsNegativeThreshold = true
-            };
-
-            bindingHandler.HandleBinding(parser.Parse(CreateWH851WheelReport(0x02)));
-
-            Assert.Equal(1, binding.Presses);
-        }
-
-        [Fact]
-        public void WH851RawUsbModeButtonInvokesAuxNineBinding()
-        {
-            var parser = new WH851UsbReportParser();
-            var bindingHandler = CreateWH851BindingHandler();
-            var binding = new CountingBinding();
-            bindingHandler.AuxButtons[8] = new BindingState
-            {
-                Binding = binding
-            };
-
-            bindingHandler.HandleBinding(parser.Parse(CreateWH851AuxReport(0x00, 0x01)));
-
-            Assert.Equal(1, binding.Presses);
-        }
-
         private static TabletConfiguration GetWH851Configuration()
         {
             return TestData.DeviceConfigurationProvider.TabletConfigurations
                 .Single(config => config.Name == "Gaomon WH851");
-        }
-
-        private static BindingHandler CreateWH851BindingHandler()
-        {
-            var configuration = GetWH851Configuration();
-
-            return new BindingHandler(new TabletReference(configuration, configuration.DigitizerIdentifiers));
-        }
-
-        private static byte[] CreateWH851WheelReport(byte wheelData) =>
-        [
-            0x08,
-            0xf1,
-            0x01, 0x01,
-            0x00, wheelData,
-            0x00, 0x00,
-            0x00, 0x00,
-            0x00,
-            0x00
-        ];
-
-        private static byte[] CreateWH851AuxReport(byte buttonsLow, byte buttonsHigh) =>
-        [
-            0x08,
-            0xe0,
-            0x00, 0x00,
-            buttonsLow, buttonsHigh,
-            0x00, 0x00,
-            0x00, 0x00,
-            0x00,
-            0x00
-        ];
-
-        private sealed class CountingBinding : IStateBinding
-        {
-            public int Presses { get; private set; }
-
-            public void Press(TabletReference tablet, IDeviceReport report)
-            {
-                Presses++;
-            }
-
-            public void Release(TabletReference tablet, IDeviceReport report)
-            {
-            }
         }
 
         private sealed class RecordingScrollHandler : IMouseScrollHandler, ISynchronousPointer

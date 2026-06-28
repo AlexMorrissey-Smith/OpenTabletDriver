@@ -17,7 +17,6 @@ namespace OpenTabletDriver.Devices.MacOSHid
     public sealed class MacOSWH851HidRootHub : IDeviceHub
     {
         private const int VendorId = 0x256c;
-        private const int UsbProductId = 0x2003;
         private const int BluetoothProductId = 0x8251;
         private const int DigitizerUsagePage = 0x000d;
         private const int DigitizerUsage = 0x0002;
@@ -85,7 +84,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
                     var usagePage = IOHID.GetIntProperty(device, "PrimaryUsagePage", -1);
                     var usage = IOHID.GetIntProperty(device, "PrimaryUsage", -1);
 
-                    if (vendorId == VendorId && IsWH851Product(productId) && usagePage == DigitizerUsagePage && usage == DigitizerUsage)
+                    if (vendorId == VendorId && IsSupportedProduct(productId) && usagePage == DigitizerUsagePage && usage == DigitizerUsage)
                     {
                         LogMatchedDevice(device, productId);
                         yield return new MacOSWH851HidEndpoint(IOHID.CFRetain(device));
@@ -99,8 +98,8 @@ namespace OpenTabletDriver.Devices.MacOSHid
             }
         }
 
-        private static bool IsWH851Product(int productId) =>
-            productId == UsbProductId || productId == BluetoothProductId;
+        internal static bool IsSupportedProduct(int productId) =>
+            productId == BluetoothProductId;
 
         internal static byte[] CreateSyntheticBluetoothPenReport(long tabletX, long tabletY, double pressure, long buttons, double tiltX, double tiltY)
         {
@@ -279,7 +278,6 @@ namespace OpenTabletDriver.Devices.MacOSHid
             private volatile bool disposed;
             private int openResult = -1;
             private int usingCoreBluetoothBridge;
-            private int loggedReports;
             private int loggedEvents;
             private int loggedRawEvents;
             private int loggedNativeSuppressed;
@@ -564,9 +562,6 @@ namespace OpenTabletDriver.Devices.MacOSHid
                         var report = ParseHexReport(line[7..]);
                         if (report.Length == 0)
                             continue;
-
-                        if (Interlocked.Increment(ref loggedReports) <= 8)
-                            Log.Debug("WH851 Timing", $"{Stopwatch.GetTimestamp()} BLE bridge read report={BitConverter.ToString(report)}");
 
                         EnqueueReport(report);
                     }
@@ -883,9 +878,6 @@ namespace OpenTabletDriver.Devices.MacOSHid
 
                 if (reportId != 0 && data[0] != reportId)
                     data = [(byte)reportId, .. data];
-
-                if (Interlocked.Increment(ref stream.loggedReports) <= 8)
-                    Log.Debug("WH851 macOS HID", $"Input report: {BitConverter.ToString(data)}");
 
                 if (!stream.reports.IsAddingCompleted)
                     stream.reports.Add(data);

@@ -1,0 +1,25 @@
+{"kind":"status","message":"Quartz event tap ready","source":"quartz.eventtap","timestamp":"2026-06-28T04:06:01.738Z"}
+{"kind":"status","message":"USB phase starting","phase":"USB","timestamp":"2026-06-28T04:06:04.286Z"}
+{"access":0,"kind":"status","message":"USB listen access","phase":"USB","source":"usb.iohid","timestamp":"2026-06-28T04:06:04.296Z"}
+{"count":3,"kind":"status","message":"USB WH851 devices found","phase":"USB","source":"usb.iohid","timestamp":"2026-06-28T04:06:04.300Z"}
+{"kind":"status","manufacturer":"GAOMON","maxInputReportSize":12,"message":"USB device","primaryUsage":1,"primaryUsagePage":65280,"product":"GAOMON Tablet_WH851","productId":8195,"serial":"20230717","source":"usb.iohid","timestamp":"2026-06-28T04:06:04.300Z","transport":"USB","vendorId":9580}
+{"ioreturn":0,"kind":"status","manufacturer":"GAOMON","maxInputReportSize":12,"message":"USB device open","primaryUsage":1,"primaryUsagePage":65280,"product":"GAOMON Tablet_WH851","productId":8195,"reportLength":12,"serial":"20230717","source":"usb.iohid","timestamp":"2026-06-28T04:06:04.300Z","transport":"USB","vendorId":9580}
+{"kind":"status","manufacturer":"GAOMON","maxInputReportSize":10,"message":"USB device","primaryUsage":2,"primaryUsagePage":13,"product":"GAOMON Tablet_WH851","productId":8195,"serial":"20230717","source":"usb.iohid","timestamp":"2026-06-28T04:06:04.301Z","transport":"USB","vendorId":9580}
+{"ioreturn":0,"kind":"status","manufacturer":"GAOMON","maxInputReportSize":10,"message":"USB device open","primaryUsage":2,"primaryUsagePage":13,"product":"GAOMON Tablet_WH851","productId":8195,"reportLength":10,"serial":"20230717","source":"usb.iohid","timestamp":"2026-06-28T04:06:04.301Z","transport":"USB","vendorId":9580}
+{"kind":"status","manufacturer":"GAOMON","maxInputReportSize":9,"message":"USB device","primaryUsage":14,"primaryUsagePage":1,"product":"GAOMON Tablet_WH851","productId":8195,"serial":"20230717","source":"usb.iohid","timestamp":"2026-06-28T04:06:04.302Z","transport":"USB","vendorId":9580}
+{"ioreturn":-536870203,"kind":"status","manufacturer":"GAOMON","maxInputReportSize":9,"message":"USB device open","primaryUsage":14,"primaryUsagePage":1,"product":"GAOMON Tablet_WH851","productId":8195,"reportLength":9,"serial":"20230717","source":"usb.iohid","timestamp":"2026-06-28T04:06:04.320Z","transport":"USB","vendorId":9580}
+{"instruction":"press it","kind":"step_start","phase":"USB","step":"button 1","stepIndex":1,"timestamp":"2026-06-28T04:06:05.291Z"}
+{"kind":"step_end","phase":"USB","step":"button 1","stepIndex":1,"timestamp":"2026-06-28T04:06:09.323Z"}
+{"instruction":"press it","kind":"step_start","phase":"USB","step":"button 2","stepIndex":2,"timestamp":"2026-06-28T04:06:09.324Z"}
+{"kind":"step_end","phase":"USB","step":"button 2","stepIndex":2,"timestamp":"2026-06-28T04:06:12.460Z"}
+{"instruction":"press it","kind":"step_start","phase":"USB","step":"button 3","stepIndex":3,"timestamp":"2026-06-28T04:06:12.460Z"}
+{"kind":"step_end","phase":"USB","step":"button 3","stepIndex":3,"timestamp":"2026-06-28T04:06:15.371Z"}
+{"instruction":"press it","kind":"step_start","phase":"USB","step":"button 4","stepIndex":4,"timestamp":"2026-06-28T04:06:15.371Z"}
+{"kind":"step_end","phase":"USB","step":"button 4","stepIndex":4,"timestamp":"2026-06-28T04:06:18.052Z"}
+{"instruction":"press it","kind":"step_start","phase":"USB","step":"button 5","stepIndex":5,"timestamp":"2026-06-28T04:06:18.052Z"}
+{"kind":"step_end","phase":"USB","step":"button 5","stepIndex":5,"timestamp":"2026-06-28T04:06:20.619Z"}
+{"instruction":"press it","kind":"step_start","phase":"USB","step":"button 6","stepIndex":6,"timestamp":"2026-06-28T04:06:20.620Z"}
+{"kind":"step_end","phase":"USB","step":"button 6","stepIndex":6,"timestamp":"2026-06-28T04:06:22.525Z"}
+{"instruction":"press it","kind":"step_start","phase":"USB","step":"button 7","stepIndex":7,"timestamp":"2026-06-28T04:06:22.525Z"}
+{"kind":"step_end","phase":"USB","step":"button 7","stepIndex":7,"timestamp":"2026-06-28T04:06:24.730Z"}
+{"instruction":"press it","kind":"step_start","phase":"USB","step":"button 8","stepIndex":8,"timestamp":"2026-06-28T04:06:24.730Z"}
