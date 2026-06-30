@@ -9,7 +9,7 @@ using OpenTabletDriver.Plugin.Tablet;
 
 namespace OpenTabletDriver.Desktop.Binding
 {
-    [PluginName(PLUGIN_NAME)]
+    [PluginName(PLUGIN_NAME), HideFromBindingList]
     public class KeyBinding : IStateBinding
     {
         private const string PLUGIN_NAME = "Key Binding";

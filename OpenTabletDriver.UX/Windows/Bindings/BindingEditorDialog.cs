@@ -5,31 +5,54 @@ using Eto.Forms;
 using OpenTabletDriver.Desktop.Binding;
 using OpenTabletDriver.Desktop.Reflection;
 using OpenTabletDriver.Plugin.Platform.Pointer;
+using OpenTabletDriver.UX.Controls;
+using OpenTabletDriver.UX.Controls.Generic;
+using OpenTabletDriver.UX.Controls.Generic.Reflection;
+using IBinding = OpenTabletDriver.Plugin.IBinding;
 
 namespace OpenTabletDriver.UX.Windows.Bindings
 {
+    /// <summary>
+    /// Single unified binding editor: capture a key/mouse button, or pick any other action from
+    /// one dropdown. Replaces the old split "quick" + "advanced" dialogs.
+    /// </summary>
     public class BindingEditorDialog : Dialog<PluginSettingStore?>
     {
         public BindingEditorDialog(PluginSettingStore? currentBinding = null)
         {
             Title = "Binding Editor";
             Result = currentBinding;
+            current = currentBinding;
+            Resizable = true;
+            ClientSize = new Size(420, 460);
+
+            bindingController = new BindingController { Height = 90 };
+            actionDropDown = new TypeDropDown<IBinding>();
+            actionSettings = new PluginSettingStoreEditor<IBinding>();
 
             this.Content = new StackLayout
             {
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Padding = new Padding(5),
-                Spacing = 5,
+                Padding = 10,
+                Spacing = 8,
                 Items =
                 {
                     new StackLayoutItem
                     {
-                        Expand = true,
-                        Control = bindingController = new BindingController
+                        Control = new Group
                         {
-                            Store = currentBinding,
-                            Width = 300,
-                            Height = 150
+                            Text = "Key or Mouse Button",
+                            Content = bindingController
+                        }
+                    },
+                    new Group
+                    {
+                        Text = "Or pick an action",
+                        Content = new StackLayout
+                        {
+                            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                            Spacing = 5,
+                            Items = { actionDropDown, actionSettings }
                         }
                     },
                     new StackLayout
@@ -38,54 +61,74 @@ namespace OpenTabletDriver.UX.Windows.Bindings
                         Spacing = 5,
                         Items =
                         {
-                            new StackLayoutItem
-                            {
-                                Expand = true,
-                                Control = new Button(ClearBinding)
-                                {
-                                    Text = "Clear"
-                                }
-                            },
-                            new StackLayoutItem
-                            {
-                                Expand = true,
-                                Control = new Button(ApplyBinding)
-                                {
-                                    Text = "Apply"
-                                }
-                            }
+                            new StackLayoutItem { Expand = true, Control = new Button(ClearBinding) { Text = "Clear" } },
+                            new StackLayoutItem { Expand = true, Control = new Button(ApplyBinding) { Text = "Apply" } }
                         }
                     }
-                },
+                }
             };
-        }
 
-        private BindingController bindingController;
-
-        private void ClearBinding(object? sender, EventArgs e)
-        {
-            Close(null);
-        }
-
-        private void ApplyBinding(object? sender, EventArgs e)
-        {
-            Close(bindingController.Store);
-        }
-
-        private static string ParseMouseButton(MouseEventArgs e)
-        {
-            switch (e.Buttons)
+            bindingController.StoreChanged += (_, _) =>
             {
-                case MouseButtons.Primary:
-                    return nameof(MouseButton.Left);
-                case MouseButtons.Middle:
-                    return nameof(MouseButton.Middle);
-                case MouseButtons.Alternate:
-                    return nameof(MouseButton.Right);
-                default:
-                    return nameof(MouseButton.None);
+                if (updating) return;
+                current = bindingController.Store;
+                updating = true;
+                actionDropDown.SelectedValue = null;
+                actionSettings.Store = null;
+                updating = false;
+            };
+
+            actionDropDown.SelectedValueChanged += (_, _) =>
+            {
+                if (updating || actionDropDown.SelectedItem == null) return;
+                current = new PluginSettingStore(actionDropDown.SelectedItem);
+                updating = true;
+                bindingController.Store = null;
+                updating = false;
+                actionSettings.Store = current;
+            };
+
+            // Initialize from the existing binding without triggering the change handlers.
+            updating = true;
+            if (currentBinding != null && IsKeyOrMouse(currentBinding.Path))
+            {
+                bindingController.Store = currentBinding;
+                actionDropDown.SelectedValue = null;
             }
+            else if (currentBinding != null)
+            {
+                actionDropDown.SelectedValue = currentBinding.GetTypeInfo();
+                actionSettings.Store = currentBinding;
+            }
+            else
+            {
+                actionDropDown.SelectedValue = null;
+            }
+            updating = false;
         }
+
+        private readonly BindingController bindingController;
+        private readonly TypeDropDown<IBinding> actionDropDown;
+        private readonly PluginSettingStoreEditor<IBinding> actionSettings;
+        private PluginSettingStore? current;
+        private bool updating;
+
+        private static bool IsKeyOrMouse(string? path) =>
+            path == typeof(KeyBinding).FullName ||
+            path == typeof(MultiKeyBinding).FullName ||
+            path == typeof(MouseBinding).FullName;
+
+        private void ClearBinding(object? sender, EventArgs e) => Close(null);
+
+        private void ApplyBinding(object? sender, EventArgs e) => Close(current);
+
+        private static string ParseMouseButton(MouseEventArgs e) => e.Buttons switch
+        {
+            MouseButtons.Primary => nameof(MouseButton.Left),
+            MouseButtons.Middle => nameof(MouseButton.Middle),
+            MouseButtons.Alternate => nameof(MouseButton.Right),
+            _ => nameof(MouseButton.None)
+        };
 
         private class BindingController : TextArea
         {
@@ -99,27 +142,23 @@ namespace OpenTabletDriver.UX.Windows.Bindings
 
             private const string TOOLTIP = "Press a key, combination of keys, or a mouse button.";
 
+            public event EventHandler? StoreChanged;
+
             private PluginSettingStore? store;
             public PluginSettingStore? Store
             {
                 set
                 {
                     this.store = value;
-                    Refresh();
+                    this.Text = store?.GetHumanReadableString() ?? TOOLTIP;
+                    StoreChanged?.Invoke(this, EventArgs.Empty);
                 }
                 get => this.store;
             }
 
-            public void Refresh()
-            {
-                this.Text = Store?.GetHumanReadableString() ?? TOOLTIP;
-            }
-
             protected override void OnKeyDown(KeyEventArgs e)
             {
-                PluginSettingStore store;
                 Keys keys = e.KeyData;
-
                 if (keys == Keys.None)
                     return;
 
@@ -132,24 +171,25 @@ namespace OpenTabletDriver.UX.Windows.Bindings
                 else if (keys.HasFlag(Keys.Application | Keys.LeftApplication) || keys.HasFlag(Keys.Application | Keys.RightApplication))
                     keys &= ~Keys.Application;
 
+                PluginSettingStore newStore;
                 if ((keys & Keys.ModifierMask) == 0)
                 {
-                    store = new PluginSettingStore(typeof(KeyBinding));
-                    store[nameof(KeyBinding.Key)].SetValue(keys.ToString());
+                    newStore = new PluginSettingStore(typeof(KeyBinding));
+                    newStore[nameof(KeyBinding.Key)].SetValue(keys.ToString());
                 }
                 else
                 {
-                    store = new PluginSettingStore(typeof(MultiKeyBinding));
-                    store[nameof(MultiKeyBinding.Keys)].SetValue(CreateShortcutString(keys));
+                    newStore = new PluginSettingStore(typeof(MultiKeyBinding));
+                    newStore[nameof(MultiKeyBinding.Keys)].SetValue(CreateShortcutString(keys));
                 }
-                this.Store = store;
+                this.Store = newStore;
             }
 
             protected override void OnMouseDown(MouseEventArgs e)
             {
-                var store = new PluginSettingStore(typeof(MouseBinding));
-                store[nameof(MouseBinding.Button)].SetValue(ParseMouseButton(e));
-                this.Store = store;
+                var newStore = new PluginSettingStore(typeof(MouseBinding));
+                newStore[nameof(MouseBinding.Button)].SetValue(ParseMouseButton(e));
+                this.Store = newStore;
             }
 
             private static void AppendSeparator(StringBuilder sb, string separator, string text)
@@ -162,19 +202,11 @@ namespace OpenTabletDriver.UX.Windows.Bindings
             private static string CreateShortcutString(Keys keys)
             {
                 var sb = new StringBuilder();
-
-                if (keys.HasFlag(Keys.Application))
-                    AppendSeparator(sb, "+", nameof(Keys.Application));
-                if (keys.HasFlag(Keys.Control))
-                    AppendSeparator(sb, "+", nameof(Keys.Control));
-                if (keys.HasFlag(Keys.Shift))
-                    AppendSeparator(sb, "+", nameof(Keys.Shift));
-                if (keys.HasFlag(Keys.Alt))
-                    AppendSeparator(sb, "+", nameof(Keys.Alt));
-
-                var mainKey = keys & Keys.KeyMask;
-                AppendSeparator(sb, "+", mainKey.ToString());
-
+                if (keys.HasFlag(Keys.Application)) AppendSeparator(sb, "+", nameof(Keys.Application));
+                if (keys.HasFlag(Keys.Control)) AppendSeparator(sb, "+", nameof(Keys.Control));
+                if (keys.HasFlag(Keys.Shift)) AppendSeparator(sb, "+", nameof(Keys.Shift));
+                if (keys.HasFlag(Keys.Alt)) AppendSeparator(sb, "+", nameof(Keys.Alt));
+                AppendSeparator(sb, "+", (keys & Keys.KeyMask).ToString());
                 return sb.ToString();
             }
         }

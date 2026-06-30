@@ -12,7 +12,6 @@ namespace OpenTabletDriver.UX.Controls
         {
             this.Content = new StackLayout
             {
-                Spacing = 5,
                 MinimumSize = new Size(300, 0),
                 Orientation = Orientation.Horizontal,
                 Items =
@@ -21,14 +20,6 @@ namespace OpenTabletDriver.UX.Controls
                     {
                         Expand = true,
                         Control = mainButton = new Button()
-                    },
-                    new StackLayoutItem
-                    {
-                        Control = advancedButton = new Button
-                        {
-                            Text = "...",
-                            Width = 25
-                        }
                     }
                 }
             };
@@ -40,15 +31,9 @@ namespace OpenTabletDriver.UX.Controls
                 var dialog = new BindingEditorDialog(Store);
                 this.Store = await dialog.ShowModalAsync(this);
             };
-
-            advancedButton.Click += async (sender, e) =>
-            {
-                var dialog = new AdvancedBindingEditorDialog(Store);
-                this.Store = await dialog.ShowModalAsync(this);
-            };
         }
 
-        private Button mainButton, advancedButton;
+        private Button mainButton;
 
         public event EventHandler<EventArgs>? StoreChanged;
 

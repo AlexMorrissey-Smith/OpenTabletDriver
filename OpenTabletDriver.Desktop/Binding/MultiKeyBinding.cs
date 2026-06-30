@@ -8,7 +8,7 @@ using OpenTabletDriver.Plugin.Tablet;
 
 namespace OpenTabletDriver.Desktop.Binding
 {
-    [PluginName(PLUGIN_NAME)]
+    [PluginName(PLUGIN_NAME), HideFromBindingList]
     public class MultiKeyBinding : IStateBinding
     {
         private const string PLUGIN_NAME = "Multi-Key Binding";
