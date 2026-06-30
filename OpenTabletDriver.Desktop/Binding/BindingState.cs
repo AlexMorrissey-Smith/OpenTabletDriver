@@ -32,6 +32,10 @@ namespace OpenTabletDriver.Desktop.Binding
 
             if (!newState || pressureThresholdIsMetOrUnneeded) // don't update state to true without threshold
                 PreviousState = newState;
+
+            // feed continuous reports to bindings that opt in (e.g. pen-motion scroll)
+            if (newState && Binding is IReportBinding reportBinding)
+                reportBinding.OnReport(tablet, report);
         }
     }
 }

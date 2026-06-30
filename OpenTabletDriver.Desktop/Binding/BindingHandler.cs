@@ -39,10 +39,21 @@ namespace OpenTabletDriver.Desktop.Binding
 
         public event Action<IDeviceReport?>? Emit;
 
+        private bool _suppressTabletOutput;
+
         public void Consume(IDeviceReport? report)
         {
+            _suppressTabletOutput = false;
+
             if (report != null)
                 HandleBinding(report);
+
+            // While a report binding (e.g. Pen Scroll) is held, swallow positional pen
+            // reports so the cursor freezes and no tip clicks/drags leak through. The
+            // binding emits scroll itself; not re-posting position avoids flooding the
+            // OS event queue (the cause of laggy scrolling).
+            if (_suppressTabletOutput && report is ITabletReport)
+                report = null;
 
             Emit?.Invoke(report);
         }
@@ -139,13 +150,34 @@ namespace OpenTabletDriver.Desktop.Binding
 
         private void HandleTabletReport(TabletReference tablet, PenSpecifications pen, ITabletReport report)
         {
-            float pressurePercent = (float)report.Pressure / (float)pen.MaxPressure * 100f;
+            // If a held pen button drives a report binding (Pen Scroll), suppress the tip/eraser
+            // so contact doesn't click or drag while scrolling, and mark the report for swallowing.
+            bool scrollHeld = AnyHeldButtonIsReportBinding(report.PenButtons);
+            _suppressTabletOutput = scrollHeld;
+
+            uint realPressure = report.Pressure;
+            float pressurePercent = scrollHeld ? 0f : (float)report.Pressure / (float)pen.MaxPressure * 100f;
             if (_isEraser)
                 Eraser?.Invoke(tablet, report, pressurePercent);
             else
                 Tip?.Invoke(tablet, report, pressurePercent);
 
+            // Tip/Eraser threshold state zeroes report.Pressure when not pressed; restore the
+            // real value so a report binding (Pen Scroll) can still detect pen contact.
+            if (scrollHeld)
+                report.Pressure = realPressure;
+
             HandleBindingCollection(tablet, report, PenButtons, report.PenButtons);
+        }
+
+        private bool AnyHeldButtonIsReportBinding(bool[] states)
+        {
+            for (int i = 0; i < states.Length; i++)
+            {
+                if (states[i] && PenButtons.TryGetValue(i, out var binding) && binding?.Binding is IReportBinding)
+                    return true;
+            }
+            return false;
         }
 
         private void HandleAuxiliaryReport(TabletReference tablet, IAuxReport report)
