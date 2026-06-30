@@ -26,3 +26,7 @@ LOCAL_WH851_MACOS_BLUETOOTH_PLAN.md
 # Nix environment
 [Rr]esult
 .data/
+
+# WH851 dev artifacts
+logs/*.jsonl
+tools/macos/**/.build/

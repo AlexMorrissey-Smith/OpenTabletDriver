@@ -132,12 +132,39 @@ namespace OpenTabletDriver.Tests
             ]);
 
             var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
-            Assert.Equal(0x011234, tabletReport.Position.X);
-            Assert.Equal(0x025678, tabletReport.Position.Y);
+            Assert.Equal(0x1234, tabletReport.Position.X);
+            Assert.Equal(0x5678, tabletReport.Position.Y);
             Assert.Equal(0x0abcu, tabletReport.Pressure);
             Assert.Equal(-2, tabletReport.Tilt.X);
             Assert.Equal(5, tabletReport.Tilt.Y);
             Assert.True(tabletReport.PenButtons[0]);
+        }
+
+        [Fact]
+        public void BluetoothParserParsesCapturedBleHoverFrame()
+        {
+            // Real frame captured from the GATT bridge (55 54 prefix rewritten to report-id 08):
+            // 08 80 FC 61 5B 34 00 00 00 00 0D 02 7B
+            var parser = new WH851BluetoothReportParser();
+
+            var report = parser.Parse(
+            [
+                0x08,
+                0x80,
+                0xfc, 0x61,
+                0x5b, 0x34,
+                0x00, 0x00,
+                0x00, 0x00,
+                0x0d, 0x02,
+                0x7b
+            ]);
+
+            var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
+            Assert.Equal(25084, tabletReport.Position.X);
+            Assert.Equal(13403, tabletReport.Position.Y);
+            Assert.Equal(0u, tabletReport.Pressure);
+            Assert.Equal(13, tabletReport.Tilt.X);
+            Assert.Equal(2, tabletReport.Tilt.Y);
         }
 
         [Fact]
@@ -156,8 +183,8 @@ namespace OpenTabletDriver.Tests
             ]);
 
             var tabletReport = Assert.IsType<WH851BluetoothPenReport>(report);
-            Assert.Equal(0x011234, tabletReport.Position.X);
-            Assert.Equal(0x025678, tabletReport.Position.Y);
+            Assert.Equal(0x1234, tabletReport.Position.X);
+            Assert.Equal(0x5678, tabletReport.Position.Y);
             Assert.Equal(0x0abcu, tabletReport.Pressure);
             Assert.Equal(0, tabletReport.Tilt.X);
             Assert.Equal(0, tabletReport.Tilt.Y);

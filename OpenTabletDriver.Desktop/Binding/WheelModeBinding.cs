@@ -18,14 +18,14 @@ namespace OpenTabletDriver.Desktop.Binding
 {
     public enum WheelMode
     {
-        Scroll,
         BrushSize,
-        Zoom
+        Zoom,
+        Scroll
     }
 
     internal static class WheelModeState
     {
-        private static int currentMode = (int)WheelMode.Scroll;
+        private static int currentMode = (int)WheelMode.BrushSize;
         private static int currentVersion;
 
         public static WheelMode Current => (WheelMode)Volatile.Read(ref currentMode);
@@ -47,7 +47,7 @@ namespace OpenTabletDriver.Desktop.Binding
 
         public static void Reset()
         {
-            Volatile.Write(ref currentMode, (int)WheelMode.Scroll);
+            Volatile.Write(ref currentMode, (int)WheelMode.BrushSize);
             Interlocked.Increment(ref currentVersion);
         }
     }
@@ -83,7 +83,7 @@ namespace OpenTabletDriver.Desktop.Binding
     {
         private int _scrollAmount = 12;
         private int _brushDetentsPerStep = 1;
-        private int _zoomDetentsPerStep = 2;
+        private int _zoomDetentsPerStep = 4;
         private int _debounceMs = 25;
         private int _brushDetents;
         private int _zoomDetents;
@@ -121,7 +121,7 @@ namespace OpenTabletDriver.Desktop.Binding
         }
 
         [Property("Zoom Detents Per Step"),
-         DefaultPropertyValue(2),
+         DefaultPropertyValue(4),
          ToolTip("Accepted wheel detents required before one zoom key press.")]
         public int ZoomDetentsPerStep
         {

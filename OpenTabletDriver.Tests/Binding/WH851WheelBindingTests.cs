@@ -35,12 +35,16 @@ namespace OpenTabletDriver.Tests.Binding
         }
 
         [Fact]
-        public void WH851DoesNotClaimUsbIdentifier()
+        public void WH851ClaimsBothUsbAndBluetoothIdentifiers()
         {
             var configuration = GetWH851Configuration();
 
-            Assert.DoesNotContain(configuration.DigitizerIdentifiers, identifier => identifier.ProductID == 8195);
-            Assert.DoesNotContain(configuration.DigitizerIdentifiers, identifier => identifier.InputReportLength == 12);
+            // Bluetooth (0x8251, 10-byte) and USB cable (0x2003, 12-byte) both route to the
+            // same parser, giving identical downstream behavior across transports.
+            Assert.Contains(configuration.DigitizerIdentifiers, identifier => identifier.ProductID == 33361 && identifier.InputReportLength == 10);
+            Assert.Contains(configuration.DigitizerIdentifiers, identifier => identifier.ProductID == 8195 && identifier.InputReportLength == 12);
+            Assert.All(configuration.DigitizerIdentifiers, identifier =>
+                Assert.Equal("OpenTabletDriver.Configurations.Parsers.Huion.WH851BluetoothReportParser", identifier.ReportParser));
         }
 
         [Fact]
@@ -64,8 +68,9 @@ namespace OpenTabletDriver.Tests.Binding
         }
 
         [Fact]
-        public void WheelModeActionsCycleScrollBrushAndZoom()
+        public void WheelModeActionsCycleBrushZoomAndScroll()
         {
+            // Mode cycle order is Brush Size -> Zoom -> Scroll, starting in Brush Size.
             WheelModeSwitchBinding.ResetMode();
             var pointer = new RecordingScrollHandler();
             var keyboard = new RecordingKeyboard();
@@ -83,20 +88,19 @@ namespace OpenTabletDriver.Tests.Binding
             };
             var switchBinding = new WheelModeSwitchBinding();
 
+            // Brush Size: one detent per key press.
             clockwise.Press(null!, new DeviceReport([]));
+            counterClockwise.Press(null!, new DeviceReport([]));
+
+            // Zoom: ZoomDetentsPerStep defaults to 4, so 4 detents => one zoom key.
             switchBinding.Press(null!, new DeviceReport([]));
-            clockwise.Press(null!, new DeviceReport([]));
-            clockwise.Press(null!, new DeviceReport([]));
-            clockwise.Press(null!, new DeviceReport([]));
-            clockwise.Press(null!, new DeviceReport([]));
-            counterClockwise.Press(null!, new DeviceReport([]));
-            counterClockwise.Press(null!, new DeviceReport([]));
-            counterClockwise.Press(null!, new DeviceReport([]));
-            counterClockwise.Press(null!, new DeviceReport([]));
+            for (var i = 0; i < 4; i++)
+                clockwise.Press(null!, new DeviceReport([]));
+            for (var i = 0; i < 4; i++)
+                counterClockwise.Press(null!, new DeviceReport([]));
+
+            // Scroll: one detent per flush.
             switchBinding.Press(null!, new DeviceReport([]));
-            clockwise.Press(null!, new DeviceReport([]));
-            clockwise.Press(null!, new DeviceReport([]));
-            clockwise.Press(null!, new DeviceReport([]));
             clockwise.Press(null!, new DeviceReport([]));
 
             Assert.Equal(-12, pointer.VerticalAmount);
@@ -105,6 +109,7 @@ namespace OpenTabletDriver.Tests.Binding
             Assert.Contains("press:LeftBracket", keyboard.Events);
             Assert.Contains(keyboard.Events, e => e is "press:Application" or "press:Control");
             Assert.Contains("press:Equal", keyboard.Events);
+            Assert.Contains("press:Minus", keyboard.Events);
         }
 
         [Fact]
@@ -116,6 +121,11 @@ namespace OpenTabletDriver.Tests.Binding
             {
                 Pointer = pointer
             };
+            var switchBinding = new WheelModeSwitchBinding();
+
+            // Cycle Brush Size -> Zoom -> Scroll to exercise scroll debounce.
+            switchBinding.Press(null!, new DeviceReport([]));
+            switchBinding.Press(null!, new DeviceReport([]));
 
             clockwise.Press(null!, new DeviceReport([]));
             clockwise.Press(null!, new DeviceReport([]));

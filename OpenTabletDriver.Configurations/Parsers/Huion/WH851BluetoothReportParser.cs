@@ -50,10 +50,12 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
             Raw = report;
             var isOfficialBleReport = report[0] == 0x08;
             var touching = report[1].IsBitSet(0);
+            // Coordinates are 16-bit LE for both transports (MaxX 40640 = 0x9E40 fits in a ushort).
+            // Bytes [8]/[9] are reserved (always 0 in captures) — no 24-bit extension.
             Position = new Vector2
             {
-                X = ReadCoordinate(report, 2, isOfficialBleReport && report.Length > 8 ? 8 : -1),
-                Y = ReadCoordinate(report, 4, isOfficialBleReport && report.Length > 9 ? 9 : -1)
+                X = Unsafe.ReadUnaligned<ushort>(ref report[2]),
+                Y = Unsafe.ReadUnaligned<ushort>(ref report[4])
             };
             Pressure = Unsafe.ReadUnaligned<ushort>(ref report[6]);
             if (touching && Pressure < WH851Report.MinimumTouchPressure)
@@ -70,12 +72,6 @@ namespace OpenTabletDriver.Configurations.Parsers.Huion
                 report[1].IsBitSet(2)
             ];
             Eraser = !isOfficialBleReport && report[1].IsBitSet(2);
-        }
-
-        private static int ReadCoordinate(byte[] report, int lowOffset, int highOffset)
-        {
-            var value = Unsafe.ReadUnaligned<ushort>(ref report[lowOffset]);
-            return highOffset >= 0 ? value | (report[highOffset] << 16) : value;
         }
 
         public byte[] Raw { get; set; }

@@ -40,6 +40,10 @@ namespace OpenTabletDriver.UX.Controls
                                 new StackLayoutItem(null, true),
                                 new StackLayoutItem
                                 {
+                                    Control = resetBindingsButton = new Button { Text = "Reset Bindings" }
+                                },
+                                new StackLayoutItem
+                                {
                                     Control = commandsPanel = new Panel()
                                 }
                             }
@@ -52,6 +56,20 @@ namespace OpenTabletDriver.UX.Controls
 
             tabletSwitcher.ProfilesBinding.BindDataContext<App>(a => a.Settings.Profiles);
 
+            // ReSharper disable once AsyncVoidMethod
+            resetBindingsButton.Click += async void (_, _) =>
+            {
+                if (MessageBox.Show(
+                        "Reset this tablet's button, pen, and wheel bindings to their defaults?" + Environment.NewLine +
+                        "Your tablet area and output settings are kept. Apply or save afterwards to persist.",
+                        "Reset bindings",
+                        MessageBoxButtons.OKCancel,
+                        MessageBoxType.Question) == DialogResult.Ok)
+                {
+                    await controlPanel.ResetBindingsToDefaults();
+                }
+            };
+
             App.Driver.TabletsChanged += HandleTabletsChanged;
             // ReSharper disable once AsyncVoidMethod
             Application.Instance.AsyncInvoke(async void () => HandleTabletsChanged(this, await App.Driver.Instance!.GetTablets()));
@@ -61,6 +79,7 @@ namespace OpenTabletDriver.UX.Controls
         private TabletSwitcher tabletSwitcher;
         private ControlPanel controlPanel;
         private Panel commandsPanel;
+        private Button resetBindingsButton;
 
         public Control CommandsControl
         {

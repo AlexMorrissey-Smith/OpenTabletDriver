@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Eto.Forms;
 using OpenTabletDriver.Desktop.Interop;
 using OpenTabletDriver.Desktop.Profiles;
@@ -164,6 +165,31 @@ namespace OpenTabletDriver.UX.Controls
             SetPageVisibility(logView, true);
         });
 
+        /// <summary>
+        /// Regenerates the current profile's button/pen/wheel bindings from defaults,
+        /// keeping the tablet area, output mode, and filters untouched.
+        /// </summary>
+        public async Task ResetBindingsToDefaults()
+        {
+            if (Profile is not { } profile)
+                return;
+
+            var tablet = await profile.GetTabletReference();
+            if (tablet is null)
+                return;
+
+            var defaults = BindingSettings.GetDefaults(tablet.Properties.Specifications);
+            defaults.ApplyTabletSpecificDefaults(tablet.Properties.Name);
+            profile.BindingSettings = defaults;
+
+            // Re-push the profile so each editor's controls re-read the new BindingSettings.
+            penBindingEditor.Profile = profile;
+            auxBindingEditor.Profile = profile;
+            mouseBindingEditor.Profile = profile;
+            foreach (var wheelEditor in wheelBindingEditors)
+                wheelEditor.Profile = profile;
+        }
+
         private void OnTabletChanged(TabletReference? tablet)
         {
             int tabletWheels = tablet?.Properties.Specifications.Wheels?.Count ?? 0;
@@ -175,7 +201,8 @@ namespace OpenTabletDriver.UX.Controls
                     wheelBindingEditor.ProfileBinding.Bind(ProfileBinding);
                     var pageIndex = tabControl.Pages.IndexOf(toolEditor.Parent as TabPage);
                     wheelBindingEditors.Add(wheelBindingEditor);
-                    var wheelPage = new TabPage(wheelBindingEditor) { Text = NativeTabText($"Wheel {i + 1}") };
+                    var wheelLabel = tabletWheels > 1 ? $"Wheel {i + 1}" : "Wheel";
+                    var wheelPage = new TabPage(wheelBindingEditor) { Text = NativeTabText(wheelLabel) };
                     if (pageIndex >= 0)
                         tabControl.Pages.Insert(pageIndex, wheelPage);
                     else
