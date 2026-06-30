@@ -39,6 +39,7 @@ namespace OpenTabletDriver.Tests.Binding
         {
             var configuration = GetWH851Configuration();
 
+            Assert.DoesNotContain(configuration.DigitizerIdentifiers, identifier => identifier.ProductID == 8195);
             Assert.DoesNotContain(configuration.DigitizerIdentifiers, identifier => identifier.InputReportLength == 12);
         }
 

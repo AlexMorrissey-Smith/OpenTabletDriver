@@ -24,12 +24,6 @@
   "DigitizerIdentifiers": [
     {
       "VendorID": 9580,
-      "ProductID": 8195,
-      "InputReportLength": 10,
-      "ReportParser": "OpenTabletDriver.Configurations.Parsers.Huion.WH851BluetoothReportParser"
-    },
-    {
-      "VendorID": 9580,
       "ProductID": 33361,
       "InputReportLength": 10,
       "ReportParser": "OpenTabletDriver.Configurations.Parsers.Huion.WH851BluetoothReportParser"
