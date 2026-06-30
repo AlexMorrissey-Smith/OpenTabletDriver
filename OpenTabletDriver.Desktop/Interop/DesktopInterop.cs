@@ -126,6 +126,24 @@ namespace OpenTabletDriver.Desktop.Interop
             _ => null
         };
 
+        /// <summary>
+        /// Drops the cached <see cref="VirtualScreen"/> so the next access re-reads the live
+        /// monitor layout. Needed to detect display connect/disconnect at runtime.
+        /// </summary>
+        public static void RefreshVirtualScreen() => virtualScreen = null;
+
+        /// <summary>
+        /// Raised when the OS reports that the monitor layout changed. The platform UI layer is
+        /// responsible for invoking <see cref="NotifyDisplaysChanged"/>.
+        /// </summary>
+        public static event Action? DisplaysChanged;
+
+        public static void NotifyDisplaysChanged()
+        {
+            RefreshVirtualScreen();
+            DisplaysChanged?.Invoke();
+        }
+
         private static IVirtualScreen ConstructLinuxDisplay()
         {
             if (Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") != null)

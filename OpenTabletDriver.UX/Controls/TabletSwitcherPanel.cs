@@ -120,8 +120,16 @@ namespace OpenTabletDriver.UX.Controls
             protected virtual async Task OnProfilesChanged()
             {
                 ProfilesChanged?.Invoke(this, EventArgs.Empty);
-                var tablets = await App.Driver.Instance!.GetTablets();
-                HandleTabletsChanged(this, [.. tablets]);
+                try
+                {
+                    var tablets = await App.Driver.Instance!.GetTablets();
+                    HandleTabletsChanged(this, [.. tablets]);
+                }
+                catch (Exception)
+                {
+                    // Daemon connection may be momentarily lost (e.g. during display reconfiguration).
+                    // The reconnect flow re-syncs; don't crash the UI over a dropped RPC.
+                }
             }
 
             public BindableBinding<TabletSwitcher, ProfileCollection> ProfilesBinding

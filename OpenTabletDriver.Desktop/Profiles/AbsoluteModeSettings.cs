@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Newtonsoft.Json;
 using OpenTabletDriver.Plugin.Platform.Display;
 using OpenTabletDriver.Plugin.Tablet;
@@ -22,6 +23,13 @@ namespace OpenTabletDriver.Desktop.Profiles
             get;
             set => this.RaiseAndSetIfChanged(ref field, value);
         }
+
+        /// <summary>
+        /// Remembered <see cref="Display"/> areas keyed by monitor-layout signature, so the
+        /// output area auto-adapts when displays are connected/disconnected.
+        /// </summary>
+        [JsonProperty(nameof(DisplayLayouts))]
+        public Dictionary<string, AreaSettings> DisplayLayouts { get; set; } = new();
 
         [JsonProperty(nameof(EnableClipping))]
         public bool EnableClipping

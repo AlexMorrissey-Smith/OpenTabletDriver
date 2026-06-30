@@ -31,12 +31,21 @@ namespace OpenTabletDriver.Desktop.Binding
         public static WheelMode Current => (WheelMode)Volatile.Read(ref currentMode);
         public static int Version => Volatile.Read(ref currentVersion);
 
-        public static WheelMode Next()
+        public static WheelMode Next() => Next(_ => true);
+
+        public static WheelMode Next(Func<WheelMode, bool> isEnabled)
         {
+            var count = Enum.GetValues<WheelMode>().Length;
             while (true)
             {
                 var current = Volatile.Read(ref currentMode);
-                var next = (current + 1) % Enum.GetValues<WheelMode>().Length;
+                var next = current;
+                for (var i = 0; i < count; i++)
+                {
+                    next = (next + 1) % count;
+                    if (isEnabled((WheelMode)next))
+                        break;
+                }
                 if (Interlocked.CompareExchange(ref currentMode, next, current) == current)
                 {
                     Interlocked.Increment(ref currentVersion);
@@ -57,12 +66,32 @@ namespace OpenTabletDriver.Desktop.Binding
     {
         public static void ResetMode() => WheelModeState.Reset();
 
+        [BooleanProperty("Enable Brush Size", "Include in cycle."),
+         DefaultPropertyValue(true)]
+        public bool EnableBrushSize { set; get; } = true;
+
+        [BooleanProperty("Enable Zoom", "Include in cycle."),
+         DefaultPropertyValue(true)]
+        public bool EnableZoom { set; get; } = true;
+
+        [BooleanProperty("Enable Scroll", "Include in cycle."),
+         DefaultPropertyValue(true)]
+        public bool EnableScroll { set; get; } = true;
+
         public void Press(TabletReference tablet, IDeviceReport report)
         {
-            var mode = WheelModeState.Next();
+            var mode = WheelModeState.Next(IsEnabled);
             WheelModeOverlay.Show(mode);
             Log.Write("Wheel Mode", $"Wheel mode: {Format(mode)}", LogLevel.Debug);
         }
+
+        private bool IsEnabled(WheelMode mode) => mode switch
+        {
+            WheelMode.BrushSize => EnableBrushSize,
+            WheelMode.Zoom => EnableZoom,
+            WheelMode.Scroll => EnableScroll,
+            _ => true
+        };
 
         public void Release(TabletReference tablet, IDeviceReport report)
         {
@@ -240,13 +269,13 @@ namespace OpenTabletDriver.Desktop.Binding
             SystemInterop.CurrentPlatform == PluginPlatform.MacOS ? ZoomOutMac : ZoomOutDefault;
     }
 
-    [PluginName("Wheel Mode Clockwise Action")]
+    [PluginName("Wheel Mode Clockwise Action"), HideFromBindingList]
     public sealed class WheelModeClockwiseBinding : WheelModeActionBinding
     {
         protected override bool IsClockwise => true;
     }
 
-    [PluginName("Wheel Mode Counter-Clockwise Action")]
+    [PluginName("Wheel Mode Counter-Clockwise Action"), HideFromBindingList]
     public sealed class WheelModeCounterClockwiseBinding : WheelModeActionBinding
     {
         protected override bool IsClockwise => false;

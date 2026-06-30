@@ -106,6 +106,7 @@ namespace OpenTabletDriver.UX
         };
 
         private TrayIcon? trayIcon;
+        private DisplayLayoutWatcher? displayLayoutWatcher;
 
         public bool SilenceDaemonShutdown { get; set; }
         public bool SkipUpdate { get; set; }
@@ -198,6 +199,8 @@ namespace OpenTabletDriver.UX
             {
                 App.Current.SettingsAutosave?.Dispose();
                 App.Current.SettingsAutosave = null;
+                displayLayoutWatcher?.Dispose();
+                displayLayoutWatcher = null;
             };
         }
 
@@ -258,12 +261,6 @@ namespace OpenTabletDriver.UX
             var exportSettingsBackup = new Command { MenuText = "Export settings backup...", Shortcut = Application.Instance.CommonModifier | Keys.Shift | Keys.S };
             exportSettingsBackup.Executed += async (sender, e) => await ExportSettingsBackupDialog();
 
-            var saveSettings = new Command { MenuText = "Save settings", Shortcut = Application.Instance.CommonModifier | Keys.S };
-            saveSettings.Executed += async (sender, e) => await SaveSettings();
-
-            var applySettings = new Command { MenuText = "Apply settings", Shortcut = Application.Instance.CommonModifier | Keys.Enter };
-            applySettings.Executed += async (sender, e) => await ApplySettings();
-
             var refreshPresets = new Command { MenuText = "Refresh presets" };
             refreshPresets.Executed += async (sender, e) => await RefreshPresets();
 
@@ -308,10 +305,8 @@ namespace OpenTabletDriver.UX
                         Items =
                         {
                             loadSettings,
-                            saveSettings,
                             exportSettingsBackup,
                             resetSettings,
-                            applySettings,
                             new SeparatorMenuItem(),
                             refreshPresets,
                             savePreset,
@@ -431,6 +426,10 @@ namespace OpenTabletDriver.UX
             );
             App.Current.SettingsAutosave.Track(App.Current.Settings, false);
             App.Driver.Resynchronize += async (sender, e) => await SyncSettings();
+
+            displayLayoutWatcher?.Dispose();
+            displayLayoutWatcher = new DisplayLayoutWatcher(ApplySettingsCore);
+            displayLayoutWatcher.Start();
 
             // Set window content
             base.Content = new TabletSwitcherPanel();
@@ -555,48 +554,6 @@ namespace OpenTabletDriver.UX
             return $"opentabletdriver-settings-{safeTabletName}-{DateTime.Now:yyyyMMdd-HHmmss}.json";
         }
 
-        private static async Task SaveSettings()
-        {
-            Debug.Assert(App.Driver.IsConnected, "Save should be disabled when no driver is connected");
-
-            if (App.Current.Settings is Settings settings)
-            {
-                if (settings.Profiles.Any(p => p.AbsoluteModeSettings?.Tablet.Width + p.AbsoluteModeSettings?.Tablet.Height == 0))
-                {
-                    var result = MessageBox.Show(
-                        "Warning: Your tablet area is invalid. Saving this configuration may cause problems." + Environment.NewLine +
-                        "Are you sure you want to save your configuration?",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxType.Warning
-                    );
-                    if (result != DialogResult.Yes)
-                        return;
-                }
-
-                if (App.Current.SettingsAutosave != null)
-                    await App.Current.SettingsAutosave.FlushNow();
-                else
-                {
-                    var appInfo = await App.Driver.Instance.GetApplicationInfo();
-                    settings.Serialize(new FileInfo(appInfo.SettingsFile));
-                    await ApplySettingsCore(settings);
-                }
-            }
-        }
-
-        private static async Task ApplySettings()
-        {
-            Debug.Assert(App.Driver.IsConnected, "Apply should be disabled when no driver is connected");
-
-            if (App.Current.SettingsAutosave != null)
-            {
-                await App.Current.SettingsAutosave.FlushNow();
-                return;
-            }
-
-            if (App.Current.Settings is Settings settings)
-                await ApplySettingsCore(settings);
-        }
 
         private static async Task ApplySettingsCore(Settings settings)
         {

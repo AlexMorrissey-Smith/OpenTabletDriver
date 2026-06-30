@@ -86,6 +86,23 @@ namespace OpenTabletDriver.UX.Controls
             toolEditor.StoreCollectionBinding.Bind(App.Current, a => a.Settings.Tools);
 
             outputModeEditor.SetDisplaySize(DesktopInterop.VirtualScreen?.Displays);
+
+            DesktopInterop.DisplaysChanged += HandleDisplaysChanged;
+        }
+
+        // Refresh the editor's display rectangles when monitors are connected/disconnected so the
+        // background reflects the live layout (no stale "ghost" of a removed display).
+        private void HandleDisplaysChanged() => Application.Instance.AsyncInvoke(() =>
+        {
+            outputModeEditor.SetDisplaySize(DesktopInterop.VirtualScreen?.Displays);
+            outputModeEditor.Invalidate();
+        });
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                DesktopInterop.DisplaysChanged -= HandleDisplaysChanged;
+            base.Dispose(disposing);
         }
 
         private TabControl tabControl;
@@ -241,7 +258,7 @@ namespace OpenTabletDriver.UX.Controls
             }
         }
 
-        private static string NativeTabText(string text) =>
-            text + NativeTabTrailingPadding;
+        // Native tab text: no padding hack — let macOS render the standard (Liquid Glass) tab bar.
+        private static string NativeTabText(string text) => text;
     }
 }

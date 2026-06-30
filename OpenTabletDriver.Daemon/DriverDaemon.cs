@@ -220,6 +220,10 @@ namespace OpenTabletDriver.Daemon
         {
             try
             {
+                // Re-read the live monitor layout so a rebuilt absolute pointer maps to the
+                // current displays (fixes stale output after connect/disconnect without a restart).
+                OpenTabletDriver.Desktop.Interop.DesktopInterop.RefreshVirtualScreen();
+
                 foreach (var dev in Driver.InputDevices)
                     dev.OutputMode?.Dispose();
 

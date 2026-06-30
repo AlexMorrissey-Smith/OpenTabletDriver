@@ -17,10 +17,10 @@ namespace OpenTabletDriver.Desktop.Interop.Input.Absolute
 
         public MacOSAbsolutePointer()
         {
-            var virtualScreen = DesktopInterop.VirtualScreen
-                                ?? throw new InvalidOperationException("Could not get virtual screen");
-            var primary = virtualScreen.Displays.First();
-            _offset = primary.Position;
+            // Tolerate a transient empty display list during monitor reconfiguration so the daemon
+            // doesn't throw (and drop the RPC connection) when a display is connected/disconnected.
+            var primary = DesktopInterop.VirtualScreen?.Displays.FirstOrDefault();
+            _offset = primary?.Position ?? Vector2.Zero;
         }
 
         public void SetPosition(Vector2 pos)

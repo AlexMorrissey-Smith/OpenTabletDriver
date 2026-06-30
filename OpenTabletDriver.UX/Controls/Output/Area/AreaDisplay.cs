@@ -205,9 +205,17 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
             _ => SystemColors.Control
         };
 
-        private bool mouseDragging;
+        [Flags]
+        private enum Grip { None = 0, Left = 1, Right = 2, Top = 4, Bottom = 8, Move = 16 }
+
+        private const float HandlePx = 8f;     // grab tolerance + drawn handle size (client px)
+        private const float MinModelSize = 1f; // smallest allowed area in model units
+        private const float SnapPx = 10f;      // subtle magnetic snap distance (client px)
+
+        private Grip activeGrip = Grip.None;
         private PointF? mouseOffset;
         private PointF? viewModelOffset;
+        private float dragStartAspect = 1f;    // Width/Height captured when a resize starts (Shift lock)
 
         private RectangleF ForegroundRect => Area == null ? RectangleF.Empty : RectangleF.FromCenter(
             new PointF(Area.X, Area.Y),
@@ -220,14 +228,21 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
         {
             base.OnMouseDown(e);
 
-            switch (e.Buttons)
+            if (e.Buttons != MouseButtons.Primary || Area == null)
             {
-                case MouseButtons.Primary:
-                    mouseDragging = true;
-                    break;
-                default:
-                    mouseDragging = false;
-                    break;
+                activeGrip = Grip.None;
+                return;
+            }
+
+            activeGrip = HitTest(e.Location);
+            if (activeGrip == Grip.Move)
+            {
+                mouseOffset = e.Location;
+                viewModelOffset = new PointF(Area.X, Area.Y);
+            }
+            else if (activeGrip != Grip.None && Area.Height != 0)
+            {
+                dragStartAspect = Area.Width / Area.Height;
             }
         }
 
@@ -235,44 +250,219 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
         {
             base.OnMouseUp(e);
 
-            switch (e.Buttons)
-            {
-                case MouseButtons.Primary:
-                {
-                    mouseDragging = false;
-                    break;
-                }
-            }
+            activeGrip = Grip.None;
+            mouseOffset = null;
+            viewModelOffset = null;
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
 
-            if (mouseDragging && Area != null)
-            {
-                if (mouseOffset != null && viewModelOffset.HasValue)
-                {
-                    var delta = e.Location - mouseOffset.Value;
-                    var newX = viewModelOffset.Value.X + (delta.X / PixelScale);
-                    var newY = viewModelOffset.Value.Y + (delta.Y / PixelScale);
+            if (Area == null)
+                return;
 
-                    Area.X = newX;
-                    Area.Y = newY;
-                    OnAreaChanged();
-                }
-                else
+            if (activeGrip == Grip.Move)
+            {
+                if (mouseOffset.HasValue && viewModelOffset.HasValue)
                 {
-                    mouseOffset = e.Location;
-                    viewModelOffset = new PointF(Area.X, Area.Y);
+                    Area.X = viewModelOffset.Value.X + (e.Location.X - mouseOffset.Value.X) / PixelScale;
+                    Area.Y = viewModelOffset.Value.Y + (e.Location.Y - mouseOffset.Value.Y) / PixelScale;
+                    SnapMove();
+                    OnAreaChanged();
+                    Invalidate();
                 }
             }
-            else if (!mouseDragging && mouseOffset != null)
+            else if (activeGrip != Grip.None)
             {
-                mouseOffset = null;
-                viewModelOffset = null;
+                ResizeTo(e.Location, activeGrip, e.Modifiers);
+            }
+            else
+            {
+                Cursor = CursorFor(HitTest(e.Location));
             }
         }
+
+        // ---- Drag-resize geometry -------------------------------------------------------------
+
+        private PointF PaintOffset()
+        {
+            var scale = PixelScale;
+            var bounds = FullAreaBounds!.Value;
+            return new PointF(
+                (ClientSize.Width / 2f) - (bounds.Width / 2f * scale),
+                (ClientSize.Height / 2f) - (bounds.Height / 2f * scale));
+        }
+
+        // Mouse client point -> area-local coords (centered on the area, un-rotated).
+        private (float x, float y) ToLocal(PointF client)
+        {
+            var scale = PixelScale;
+            var offset = PaintOffset();
+            float dx = ((client.X - offset.X) / scale) - Area!.X;
+            float dy = ((client.Y - offset.Y) / scale) - Area.Y;
+            float rad = -Area.Rotation * MathF.PI / 180f;
+            return (dx * MathF.Cos(rad) - dy * MathF.Sin(rad),
+                    dx * MathF.Sin(rad) + dy * MathF.Cos(rad));
+        }
+
+        private Grip HitTest(PointF client)
+        {
+            if (Area == null || !IsValid(FullAreaBounds))
+                return Grip.None;
+
+            var scale = PixelScale;
+            if (scale <= 0)
+                return Grip.None;
+
+            var (lx, ly) = ToLocal(client);
+            float hw = Area.Width / 2f, hh = Area.Height / 2f;
+            float t = HandlePx / scale;
+
+            if (lx < -hw - t || lx > hw + t || ly < -hh - t || ly > hh + t)
+                return Grip.None;
+
+            var grip = Grip.None;
+            if (MathF.Abs(lx + hw) <= t) grip |= Grip.Left;
+            else if (MathF.Abs(lx - hw) <= t) grip |= Grip.Right;
+            if (MathF.Abs(ly + hh) <= t) grip |= Grip.Top;
+            else if (MathF.Abs(ly - hh) <= t) grip |= Grip.Bottom;
+
+            return grip != Grip.None ? grip : Grip.Move;
+        }
+
+        private void ResizeTo(PointF client, Grip grip, Keys modifiers)
+        {
+            var scale = PixelScale;
+            var (lx, ly) = ToLocal(client);
+            float hw = Area!.Width / 2f, hh = Area.Height / 2f;
+            float left = -hw, right = hw, top = -hh, bottom = hh;
+
+            bool gl = grip.HasFlag(Grip.Left), gr = grip.HasFlag(Grip.Right);
+            bool gt = grip.HasFlag(Grip.Top), gb = grip.HasFlag(Grip.Bottom);
+            bool alt = modifiers.HasFlag(Keys.Alt);
+            bool shift = modifiers.HasFlag(Keys.Shift);
+
+            // 1. dragged edges follow the cursor
+            if (gl) left = lx;
+            if (gr) right = lx;
+            if (gt) top = ly;
+            if (gb) bottom = ly;
+
+            // 2. subtle magnetic snap to display/area boundaries (only when unrotated)
+            if (Area.Rotation == 0 && AreaBounds != null && scale > 0)
+            {
+                float t = SnapPx / scale;
+                if (gl) left = SnapEdge(Area.X + left, VerticalEdges(), t) - Area.X;
+                if (gr) right = SnapEdge(Area.X + right, VerticalEdges(), t) - Area.X;
+                if (gt) top = SnapEdge(Area.Y + top, HorizontalEdges(), t) - Area.Y;
+                if (gb) bottom = SnapEdge(Area.Y + bottom, HorizontalEdges(), t) - Area.Y;
+            }
+
+            // 3. Option/Alt: symmetric resize anchored at the center
+            if (alt)
+            {
+                if (gl) right = -left;
+                if (gr) left = -right;
+                if (gt) bottom = -top;
+                if (gb) top = -bottom;
+            }
+
+            // 4. Shift: maintain the aspect ratio captured at drag start
+            if (shift && dragStartAspect > 0)
+            {
+                if (gl || gr)
+                    ApplyVerticalExtent(ref top, ref bottom, MathF.Abs(right - left) / dragStartAspect, gt, gb, alt);
+                else if (gt || gb)
+                    ApplyHorizontalExtent(ref left, ref right, MathF.Abs(bottom - top) * dragStartAspect, gl, gr, alt);
+            }
+
+            // 5. enforce a minimum size without flipping
+            if (right - left < MinModelSize) { if (gl) left = right - MinModelSize; else right = left + MinModelSize; }
+            if (bottom - top < MinModelSize) { if (gt) top = bottom - MinModelSize; else bottom = top + MinModelSize; }
+
+            float localCx = (left + right) / 2f, localCy = (top + bottom) / 2f;
+            float rad = Area.Rotation * MathF.PI / 180f;
+            Area.X += localCx * MathF.Cos(rad) - localCy * MathF.Sin(rad);
+            Area.Y += localCx * MathF.Sin(rad) + localCy * MathF.Cos(rad);
+            Area.Width = right - left;
+            Area.Height = bottom - top;
+            OnAreaChanged();
+            Invalidate();
+        }
+
+        private static void ApplyVerticalExtent(ref float top, ref float bottom, float targetH, bool topActive, bool bottomActive, bool alt)
+        {
+            if (alt) { top = -targetH / 2f; bottom = targetH / 2f; }
+            else if (topActive) top = bottom - targetH;
+            else if (bottomActive) bottom = top + targetH;
+            else { float c = (top + bottom) / 2f; top = c - targetH / 2f; bottom = c + targetH / 2f; }
+        }
+
+        private static void ApplyHorizontalExtent(ref float left, ref float right, float targetW, bool leftActive, bool rightActive, bool alt)
+        {
+            if (alt) { left = -targetW / 2f; right = targetW / 2f; }
+            else if (leftActive) left = right - targetW;
+            else if (rightActive) right = left + targetW;
+            else { float c = (left + right) / 2f; left = c - targetW / 2f; right = c + targetW / 2f; }
+        }
+
+        // Subtle magnetic snap of the whole area to display/area boundaries while moving.
+        private void SnapMove()
+        {
+            if (Area == null || Area.Rotation != 0 || AreaBounds == null)
+                return;
+            var scale = PixelScale;
+            if (scale <= 0)
+                return;
+
+            float t = SnapPx / scale;
+            float hw = Area.Width / 2f, hh = Area.Height / 2f;
+
+            float dxLeft = SnapEdge(Area.X - hw, VerticalEdges(), t) - (Area.X - hw);
+            float dxRight = SnapEdge(Area.X + hw, VerticalEdges(), t) - (Area.X + hw);
+            Area.X += PickSnap(dxLeft, dxRight);
+
+            float dyTop = SnapEdge(Area.Y - hh, HorizontalEdges(), t) - (Area.Y - hh);
+            float dyBottom = SnapEdge(Area.Y + hh, HorizontalEdges(), t) - (Area.Y + hh);
+            Area.Y += PickSnap(dyTop, dyBottom);
+        }
+
+        private static float PickSnap(float a, float b)
+        {
+            if (a != 0 && b != 0) return MathF.Abs(a) <= MathF.Abs(b) ? a : b;
+            return a != 0 ? a : b;
+        }
+
+        private IEnumerable<float> VerticalEdges()
+        {
+            foreach (var r in AreaBounds!) { yield return r.Left; yield return r.Right; }
+        }
+
+        private IEnumerable<float> HorizontalEdges()
+        {
+            foreach (var r in AreaBounds!) { yield return r.Top; yield return r.Bottom; }
+        }
+
+        private static float SnapEdge(float value, IEnumerable<float> edges, float threshold)
+        {
+            float best = value, bestDist = threshold;
+            foreach (var e in edges)
+            {
+                float d = MathF.Abs(e - value);
+                if (d < bestDist) { bestDist = d; best = e; }
+            }
+            return best;
+        }
+
+        private static Cursor CursorFor(Grip grip) => grip switch
+        {
+            Grip.Move => Cursors.Move,
+            Grip.Left or Grip.Right => Cursors.VerticalSplit,
+            Grip.Top or Grip.Bottom => Cursors.HorizontalSplit,
+            Grip.None => Cursors.Default,
+            _ => Cursors.Crosshair // corners
+        };
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -343,9 +533,25 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
                 originEllipse.Offset(area.Center - (originEllipse.Size / 2));
                 graphics.DrawEllipse(SystemColors.ControlText, originEllipse);
 
+                DrawHandles(graphics, area);
                 DrawRatioText(graphics, area, Area);
                 DrawWidthText(graphics, area, Area);
                 DrawHeightText(graphics, area, Area);
+            }
+        }
+
+        private static void DrawHandles(Graphics graphics, RectangleF area)
+        {
+            const float hs = HandlePx;
+            var points = new[]
+            {
+                area.TopLeft, area.TopRight, area.BottomLeft, area.BottomRight,
+                area.MiddleTop, area.MiddleBottom, area.MiddleLeft, area.MiddleRight
+            };
+            foreach (var p in points)
+            {
+                var handle = new RectangleF(p.X - hs / 2, p.Y - hs / 2, hs, hs);
+                graphics.FillRectangle(SystemColors.ControlText, handle);
             }
         }
 

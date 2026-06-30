@@ -2,11 +2,15 @@ using System;
 using System.Linq;
 using Eto.Forms;
 using MonoMac.AppKit;
+using MonoMac.Foundation;
+using OpenTabletDriver.Desktop.Interop;
 
 namespace OpenTabletDriver.UX.MacOS;
 
 internal class FormHandler : Eto.Mac.Forms.FormHandler
 {
+    private NSObject? screenChangeObserver;
+
     protected override void Initialize()
     {
         base.Initialize();
@@ -14,6 +18,22 @@ internal class FormHandler : Eto.Mac.Forms.FormHandler
         Widget.LostFocus += UpdateActivationPolicy;
         Widget.GotFocus += UpdateActivationPolicy;
         ApplyVibrancy();
+        ObserveScreenChanges();
+    }
+
+    // Forward OS monitor-layout changes to the cross-platform display-layout watcher.
+    private void ObserveScreenChanges()
+    {
+        try
+        {
+            screenChangeObserver ??= NSNotificationCenter.DefaultCenter.AddObserver(
+                NSApplication.DidChangeScreenParametersNotification,
+                _ => DesktopInterop.NotifyDisplaysChanged());
+        }
+        catch
+        {
+            // Non-fatal: the watcher's poll still catches changes, just less promptly.
+        }
     }
 
     public override void Show()
@@ -40,7 +60,7 @@ internal class FormHandler : Eto.Mac.Forms.FormHandler
             window.BackgroundColor = NSColor.Clear;
             window.IsOpaque = false;
 
-            var effect = new NSVisualEffectView(content.Frame)
+            var effect = new NSVisualEffectView(content.Bounds)
             {
                 Material = (NSVisualEffectMaterial)21,        // NSVisualEffectMaterialUnderWindowBackground
                 BlendingMode = NSVisualEffectBlendingMode.BehindWindow,
@@ -48,11 +68,9 @@ internal class FormHandler : Eto.Mac.Forms.FormHandler
                 AutoresizingMask = NSViewResizingMask.WidthSizable | NSViewResizingMask.HeightSizable
             };
 
-            // Reparent Eto's content view inside the effect view so the material sits behind everything.
-            window.ContentView = effect;
-            content.Frame = effect.Bounds;
-            content.AutoresizingMask = NSViewResizingMask.WidthSizable | NSViewResizingMask.HeightSizable;
-            effect.AddSubview(content);
+            // Add the material as a background layer BEHIND Eto's content (do not reparent/replace
+            // the content view — that breaks Eto's layout). Eto's controls render on top.
+            content.AddSubview(effect, NSWindowOrderingMode.Below, null);
         }
         catch
         {
