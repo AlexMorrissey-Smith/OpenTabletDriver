@@ -40,6 +40,8 @@ namespace OpenTabletDriver.Desktop.Binding
         public event Action<IDeviceReport?>? Emit;
 
         private bool _suppressTabletOutput;
+        private long _suppressUntil;
+        private const long SuppressGraceMs = 100; // ride over single-frame Bluetooth button-bit drops
 
         public void Consume(IDeviceReport? report)
         {
@@ -152,11 +154,17 @@ namespace OpenTabletDriver.Desktop.Binding
         {
             // If a held pen button drives a report binding (Pen Scroll), suppress the tip/eraser
             // so contact doesn't click or drag while scrolling, and mark the report for swallowing.
+            // Hold suppression for a short grace window: the Bluetooth button bit occasionally
+            // drops for a single frame, and without grace that frame leaks the pen position to
+            // the cursor (it jumps). Grace keeps the cursor frozen across such glitches.
             bool scrollHeld = AnyHeldButtonIsReportBinding(report.PenButtons);
-            _suppressTabletOutput = scrollHeld;
+            if (scrollHeld)
+                _suppressUntil = Environment.TickCount64 + SuppressGraceMs;
+            bool suppress = scrollHeld || Environment.TickCount64 < _suppressUntil;
+            _suppressTabletOutput = suppress;
 
             uint realPressure = report.Pressure;
-            float pressurePercent = scrollHeld ? 0f : (float)report.Pressure / (float)pen.MaxPressure * 100f;
+            float pressurePercent = suppress ? 0f : (float)report.Pressure / (float)pen.MaxPressure * 100f;
             if (_isEraser)
                 Eraser?.Invoke(tablet, report, pressurePercent);
             else
@@ -164,7 +172,7 @@ namespace OpenTabletDriver.Desktop.Binding
 
             // Tip/Eraser threshold state zeroes report.Pressure when not pressed; restore the
             // real value so a report binding (Pen Scroll) can still detect pen contact.
-            if (scrollHeld)
+            if (suppress)
                 report.Pressure = realPressure;
 
             HandleBindingCollection(tablet, report, PenButtons, report.PenButtons);

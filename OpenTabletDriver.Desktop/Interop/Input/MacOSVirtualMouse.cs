@@ -53,6 +53,11 @@ namespace OpenTabletDriver.Desktop.Interop.Input
         private readonly double _doubleClickIntervalInMs;
         private readonly MacOSVirtualKeyboard _keyboard;
 
+        // Serializes all event emission: the shared _mouseEvent is CFRelease'd and recreated in
+        // PostEvent, so concurrent calls (e.g. a scroll-inertia timer thread racing the report
+        // pipeline thread) would double-free it and crash. One lock guards every public entry.
+        private readonly object _sync = new();
+
         public MacOSVirtualMouse()
         {
             _doubleClickIntervalInMs = GetDoubleClickInterval() * 1000;
@@ -68,29 +73,43 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
         public void MouseDown(MouseButton button)
         {
-            if (!_pendingX.HasValue)
-                QueuePendingPositionFromSystem();
-            SetButtonState(ref _currButtonStates, ToCGMouseButton(button), true);
+            lock (_sync)
+            {
+                if (!_pendingX.HasValue)
+                    QueuePendingPositionFromSystem();
+                SetButtonState(ref _currButtonStates, ToCGMouseButton(button), true);
+            }
         }
 
         public void MouseUp(MouseButton button)
         {
-            if (!_pendingX.HasValue)
-                QueuePendingPositionFromSystem();
-            SetButtonState(ref _currButtonStates, ToCGMouseButton(button), false);
+            lock (_sync)
+            {
+                if (!_pendingX.HasValue)
+                    QueuePendingPositionFromSystem();
+                SetButtonState(ref _currButtonStates, ToCGMouseButton(button), false);
+            }
         }
 
         public void ScrollVertically(int amount)
         {
-            _scrollDeltaX = -amount;
+            lock (_sync)
+                _scrollDeltaX = -amount;
         }
 
         public void ScrollHorizontally(int amount)
         {
-            _scrollDeltaY = -amount;
+            lock (_sync)
+                _scrollDeltaY = -amount;
         }
 
         public void Flush()
+        {
+            lock (_sync)
+                FlushLocked();
+        }
+
+        private void FlushLocked()
         {
             if (_currButtonStates != _prevButtonStates)
             {
@@ -119,34 +138,41 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
         public void Reset()
         {
-            // send a key up for all currently held keys
-            if (_currButtonStates > 0)
+            lock (_sync)
             {
-                ProcessKeyStates(_currButtonStates, 0);
-                _prevButtonStates = 0;
-                _currButtonStates = 0;
+                // send a key up for all currently held keys
+                if (_currButtonStates > 0)
+                {
+                    ProcessKeyStates(_currButtonStates, 0);
+                    _prevButtonStates = 0;
+                    _currButtonStates = 0;
+                }
             }
         }
 
         public void SetEraser(bool isEraser)
         {
-            if (_isEraser.HasValue && _isEraser.Value == isEraser)
-                return;
+            lock (_sync)
+            {
+                if (_isEraser.HasValue && _isEraser.Value == isEraser)
+                    return;
 
-            _isEraser = isEraser;
+                _isEraser = isEraser;
 
-            // Immediately post a proximity event to notify applications of the tool change,
-            // mirroring how Linux EvdevVirtualTablet sends the tool switch event right away.
-            PostProximityEvent();
+                // Immediately post a proximity event to notify applications of the tool change,
+                // mirroring how Linux EvdevVirtualTablet sends the tool switch event right away.
+                PostProximityEvent();
 
-            // Reset the stopwatch so ApplyTabletValues doesn't redundantly re-send
-            // a proximity event on the next frame.
-            _stopWatch.Restart();
+                // Reset the stopwatch so ApplyTabletValues doesn't redundantly re-send
+                // a proximity event on the next frame.
+                _stopWatch.Restart();
+            }
         }
 
         public void SetTilt(Vector2 tilt)
         {
-            _tilt = tilt;
+            lock (_sync)
+                _tilt = tilt;
         }
 
         protected abstract void SetPendingPosition(IntPtr mouseEvent, float x, float y);
@@ -158,17 +184,21 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
         protected void QueuePendingPosition(float x, float y)
         {
-            _pendingX = x;
-            _pendingY = y;
-            if (Vector2.Distance(_lastMouseDownPosition, new Vector2(x, y)) > DoubleClickMoveTolerance)
+            lock (_sync) // reentrant: also called from MouseDown/MouseUp which hold the lock
             {
-                _mouseMovedSinceLastDown = true;
+                _pendingX = x;
+                _pendingY = y;
+                if (Vector2.Distance(_lastMouseDownPosition, new Vector2(x, y)) > DoubleClickMoveTolerance)
+                {
+                    _mouseMovedSinceLastDown = true;
+                }
             }
         }
 
         public void SetPressure(float percentage)
         {
-            _pressure = percentage;
+            lock (_sync)
+                _pressure = percentage;
         }
 
         private void PostProximityEvent()
