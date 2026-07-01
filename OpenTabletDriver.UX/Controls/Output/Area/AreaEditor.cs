@@ -48,7 +48,7 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
                                         Unit = Unit,
                                         ToolTip = $"Area width in {Unit}",
                                         Orientation = Orientation.Horizontal,
-                                        Content = width = new FloatNumberBox()
+                                        Content = width = new FloatNumberBox { Width = 68 }
                                     }
                                 },
                                 new StackLayoutItem
@@ -59,7 +59,7 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
                                         Unit = Unit,
                                         ToolTip = $"Area height in {Unit}",
                                         Orientation = Orientation.Horizontal,
-                                        Content = height = new FloatNumberBox()
+                                        Content = height = new FloatNumberBox { Width = 68 }
                                     }
                                 },
                                 new StackLayoutItem
@@ -70,7 +70,7 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
                                         Unit = Unit,
                                         ToolTip = $"Area center X offset in {Unit}",
                                         Orientation = Orientation.Horizontal,
-                                        Content = x = new FloatNumberBox()
+                                        Content = x = new FloatNumberBox { Width = 68 }
                                     }
                                 },
                                 new StackLayoutItem
@@ -81,7 +81,7 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
                                         Unit = Unit,
                                         ToolTip = $"Area center Y offset in {Unit}",
                                         Orientation = Orientation.Horizontal,
-                                        Content = y = new FloatNumberBox()
+                                        Content = y = new FloatNumberBox { Width = 68 }
                                     }
                                 }
                             }

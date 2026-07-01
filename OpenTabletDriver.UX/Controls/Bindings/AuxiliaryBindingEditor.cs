@@ -12,10 +12,12 @@ namespace OpenTabletDriver.UX.Controls.Bindings
             this.Content = new Scrollable
             {
                 Border = BorderType.None,
+                ExpandContentWidth = true,
                 Content = new StackLayout
                 {
                     HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Spacing = 5,
+                    Spacing = 8,
+                    Padding = 12,
                     Items =
                     {
                         new Group

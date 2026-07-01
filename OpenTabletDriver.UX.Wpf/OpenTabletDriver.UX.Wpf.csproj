@@ -4,6 +4,14 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>$(FrameworkBase)-windows</TargetFramework>
     <ApplicationIcon>../OpenTabletDriver.UX/Assets/otd.ico</ApplicationIcon>
+    <!-- Needed for System.Windows.Application.ThemeMode (WindowsTheme.cs) - Eto.Platform.Wpf
+         already pulls in WPF transitively, this just exposes the types to our own code. -->
+    <UseWPF>true</UseWPF>
+    <!-- UseWPF adds the Microsoft.WindowsDesktop.App framework reference, which trips NETSDK1100
+         during the solution-wide `dotnet restore` on macOS/Linux (the mac/linux packagers restore
+         the whole solution even though they never publish this project). Allow cross-platform
+         restore/analysis; the WPF app itself is still only ever built/run on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup Label="NuGet Packages">

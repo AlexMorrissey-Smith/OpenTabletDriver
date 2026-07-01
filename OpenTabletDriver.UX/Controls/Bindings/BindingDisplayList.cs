@@ -22,7 +22,7 @@ namespace OpenTabletDriver.UX.Controls.Bindings
             {
                 Text = GetTextForIndex(index),
                 Orientation = Orientation.Horizontal,
-                ExpandContent = false,
+                ExpandContent = true,
                 Content = display
             };
         }

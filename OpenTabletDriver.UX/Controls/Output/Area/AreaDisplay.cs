@@ -195,11 +195,12 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
         }
 
         private static readonly Font Font = SystemFonts.User(8);
-        private static readonly Brush TextBrush = new SolidBrush(SystemColors.ControlText);
 
-        private readonly Color AccentColor = new Color(SystemColors.Highlight, 0.5f);
-        private readonly Color AreaBoundsFillColor = SystemColors.ControlBackground;
-        private readonly Color AreaBoundsBorderColor = SystemInterop.CurrentPlatform switch
+        // Read SystemColors fresh on every paint (not cached) so these track a live light/dark switch.
+        private static Brush TextBrush => new SolidBrush(SystemColors.ControlText);
+        private static Color AccentColor => new Color(SystemColors.Highlight, 0.5f);
+        private static Color AreaBoundsFillColor => SystemColors.ControlBackground;
+        private static Color AreaBoundsBorderColor => SystemInterop.CurrentPlatform switch
         {
             PluginPlatform.Windows => new Color(64, 64, 64),
             _ => SystemColors.Control

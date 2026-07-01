@@ -12,73 +12,64 @@ namespace OpenTabletDriver.UX.Controls.Bindings
             this.Content = new Scrollable
             {
                 Border = BorderType.None,
+                ExpandContentWidth = true,
                 Content = new StackLayout
                 {
                     HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Spacing = 8,
+                    Padding = 12,
                     Items =
                     {
-                        new TableLayout
+                        new Group
                         {
-                            Rows =
+                            Text = "Tip Settings",
+                            Content = new StackLayout
                             {
-                                new TableRow
+                                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                                Spacing = 5,
+                                Items =
                                 {
-                                    Cells =
+                                    new Group
                                     {
-                                        new Group
-                                        {
-                                            Text = "Tip Settings",
-                                            Content = new StackLayout
-                                            {
-                                                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                                                Spacing = 5,
-                                                Items =
-                                                {
-                                                    new Group
-                                                    {
-                                                        Text = "Tip Binding",
-                                                        Orientation = Orientation.Horizontal,
-                                                        ExpandContent = false,
-                                                        Content = tipButton = new BindingDisplay()
-                                                    },
-                                                    new UnitGroup
-                                                    {
-                                                        Text = "Tip Threshold",
-                                                        ToolTip = "The minimum threshold in order for the assigned binding to activate.",
-                                                        Orientation = Orientation.Horizontal,
-                                                        Content = tipThreshold = new FloatSlider(),
-                                                        Unit = "%"
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        new Group
-                                        {
-                                            Text = "Eraser Settings",
-                                            Content = new StackLayout
-                                            {
-                                                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                                                Spacing = 5,
-                                                Items =
-                                                {
-                                                    new Group
-                                                    {
-                                                        Text = "Eraser Binding",
-                                                        ExpandContent = false,
-                                                        Orientation = Orientation.Horizontal,
-                                                        Content = eraserButton = new BindingDisplay()
-                                                    },
-                                                    new UnitGroup
-                                                    {
-                                                        Text = "Eraser Threshold",
-                                                        ToolTip = "The minimum threshold in order for the assigned binding to activate.",
-                                                        Orientation = Orientation.Horizontal,
-                                                        Content = eraserThreshold = new FloatSlider(),
-                                                        Unit = "%"
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        Text = "Tip Binding",
+                                        Orientation = Orientation.Horizontal,
+                                        ExpandContent = true,
+                                        Content = tipButton = new BindingDisplay()
+                                    },
+                                    new UnitGroup
+                                    {
+                                        Text = "Tip Threshold",
+                                        ToolTip = "The minimum threshold in order for the assigned binding to activate.",
+                                        Orientation = Orientation.Horizontal,
+                                        Content = tipThreshold = new FloatSlider(),
+                                        Unit = "%"
+                                    }
+                                }
+                            }
+                        },
+                        new Group
+                        {
+                            Text = "Eraser Settings",
+                            Content = new StackLayout
+                            {
+                                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                                Spacing = 5,
+                                Items =
+                                {
+                                    new Group
+                                    {
+                                        Text = "Eraser Binding",
+                                        ExpandContent = true,
+                                        Orientation = Orientation.Horizontal,
+                                        Content = eraserButton = new BindingDisplay()
+                                    },
+                                    new UnitGroup
+                                    {
+                                        Text = "Eraser Threshold",
+                                        ToolTip = "The minimum threshold in order for the assigned binding to activate.",
+                                        Orientation = Orientation.Horizontal,
+                                        Content = eraserThreshold = new FloatSlider(),
+                                        Unit = "%"
                                     }
                                 }
                             }
@@ -95,6 +86,7 @@ namespace OpenTabletDriver.UX.Controls.Bindings
                             Text = "Miscellaneous",
                             Content = new StackLayout {
                                 Orientation = Orientation.Horizontal,
+                                Spacing = 8,
                                 Items = {
                                     new Group {
                                         Orientation = Orientation.Horizontal,

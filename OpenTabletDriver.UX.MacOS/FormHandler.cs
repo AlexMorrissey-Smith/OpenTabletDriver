@@ -17,7 +17,7 @@ internal class FormHandler : Eto.Mac.Forms.FormHandler
         Widget.WindowStateChanged += UpdateActivationPolicy;
         Widget.LostFocus += UpdateActivationPolicy;
         Widget.GotFocus += UpdateActivationPolicy;
-        ApplyVibrancy();
+        ApplyWindowChrome();
         ObserveScreenChanges();
     }
 
@@ -42,39 +42,36 @@ internal class FormHandler : Eto.Mac.Forms.FormHandler
         base.Show();
     }
 
-    // Gives the window the translucent "frosted glass" macOS material behind its content.
+    // Solid, opaque window with an edge-to-edge titlebar (no translucent "frosted glass"
+    // material — the UI uses solid backgrounds so content never shows the desktop through it).
     // Best-effort: any failure here must never take down the app, so it is fully guarded.
-    private void ApplyVibrancy()
+    private void ApplyWindowChrome()
     {
         try
         {
             var window = Control;
-            var content = window?.ContentView;
-            if (window == null || content == null)
+            if (window == null)
                 return;
 
-            // Edge-to-edge translucent titlebar for the modern look.
+            // Titlebar that blends into the solid window body, but NOT full-size content: the
+            // content view stays below the titlebar so nothing renders under the traffic lights.
             window.TitlebarAppearsTransparent = true;
             window.TitleVisibility = NSWindowTitleVisibility.Hidden;
-            window.StyleMask |= NSWindowStyle.FullSizeContentView;
-            window.BackgroundColor = NSColor.Clear;
-            window.IsOpaque = false;
 
-            var effect = new NSVisualEffectView(content.Bounds)
-            {
-                Material = (NSVisualEffectMaterial)21,        // NSVisualEffectMaterialUnderWindowBackground
-                BlendingMode = NSVisualEffectBlendingMode.BehindWindow,
-                State = (NSVisualEffectState)1,               // NSVisualEffectStateActive
-                AutoresizingMask = NSViewResizingMask.WidthSizable | NSViewResizingMask.HeightSizable
-            };
+            // Opaque, theme-following window background (adapts to light/dark automatically).
+            window.IsOpaque = true;
+            window.BackgroundColor = NSColor.WindowBackground;
 
-            // Add the material as a background layer BEHIND Eto's content (do not reparent/replace
-            // the content view — that breaks Eto's layout). Eto's controls render on top.
-            content.AddSubview(effect, NSWindowOrderingMode.Below, null);
+            // The old vibrancy view forced the window to be layer-backed, which is what made the
+            // custom-drawn cards/sidebar render crisp. Removing it dropped layer-backing and the
+            // Drawables started rendering jagged. Re-enable layer-backing explicitly so solid mode
+            // is just as sharp.
+            if (window.ContentView is { } content)
+                content.WantsLayer = true;
         }
         catch
         {
-            // Vibrancy is cosmetic; ignore unsupported OS/runtime combinations.
+            // Window chrome is cosmetic; ignore unsupported OS/runtime combinations.
         }
     }
 

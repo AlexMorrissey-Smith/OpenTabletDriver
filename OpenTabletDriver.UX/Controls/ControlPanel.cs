@@ -9,82 +9,71 @@ using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Output;
 using OpenTabletDriver.Plugin.Tablet;
 using OpenTabletDriver.UX.Controls.Bindings;
+using OpenTabletDriver.UX.Controls.Generic;
 using OpenTabletDriver.UX.Controls.Output;
 
 namespace OpenTabletDriver.UX.Controls
 {
     public class ControlPanel : Panel
     {
-        private const string NativeTabTrailingPadding = "\u00a0\u00a0\u00a0";
-
         public ControlPanel()
         {
-            var control = new TabControl();
-
-            control.Pages.Add(new TabPage
+            outputModeEditor = new();
+            penBindingEditor = new PenBindingEditor();
+            auxBindingEditor = new AuxiliaryBindingEditor();
+            mouseBindingEditor = new MouseBindingEditor();
+            toolEditor = new();
+            filterEditor = new();
+            placeholder = new Placeholder
             {
-                Text = NativeTabText("Tablet"),
-                Content = outputModeEditor = new()
-            });
+                Text = "No tablets are detected."
+            };
+            logView = new();
 
-            control.Pages.Add(new TabPage
+            tabletItem = new SidebarNav.NavItem("Tablet", "Tablet", outputModeEditor);
+            penItem = new SidebarNav.NavItem("Pen", "Pen", penBindingEditor);
+            auxItem = new SidebarNav.NavItem("Buttons", "Buttons", auxBindingEditor);
+            mouseItem = new SidebarNav.NavItem("Mouse", "Mouse", mouseBindingEditor);
+            toolsItem = new SidebarNav.NavItem("Tools", "Tools", toolEditor);
+            filtersItem = new SidebarNav.NavItem("Filters", "Filters", filterEditor);
+            infoItem = new SidebarNav.NavItem("Info", "Info", placeholder);
+            consoleItem = new SidebarNav.NavItem("Console", "Console", logView);
+
+            // Canonical, never-shrinking ordering: wheel entries get spliced into this (and only
+            // this) list as tablets with wheels are seen. The sidebar holds the live *visible*
+            // subset, always kept in this same relative order.
+            masterOrder = [tabletItem, penItem, auxItem, mouseItem, toolsItem, filtersItem, infoItem, consoleItem];
+
+            contentPanel = new Panel();
+
+            sidebar = new SidebarNav();
+            sidebar.SelectedIndexChanged += (_, _) =>
             {
-                Text = NativeTabText("Pen"),
-                Content = penBindingEditor = new PenBindingEditor()
-            });
+                contentPanel.Content = sidebar.SelectedItem?.Tag as Control;
+            };
 
-            control.Pages.Add(new TabPage
-            {
-                Text = NativeTabText("Buttons"),
-                Content = auxBindingEditor = new AuxiliaryBindingEditor()
-            });
+            appSelector = new ApplicationBindingSelector();
 
-            control.Pages.Add(new TabPage
-            {
-                ID = "mouse",
-                Text = NativeTabText("Mouse"),
-                Content = mouseBindingEditor = new MouseBindingEditor()
-            });
-
-            control.Pages.Add(new TabPage
-            {
-                Text = NativeTabText("Tools"),
-                Padding = 5,
-                Content = toolEditor = new()
-            });
-
-            control.Pages.Add(new TabPage
-            {
-                Text = NativeTabText("Filters"),
-                Padding = 5,
-                Content = filterEditor = new()
-            });
-
-            control.Pages.Add(new TabPage
-            {
-                Text = NativeTabText("Info"),
-                Padding = 5,
-                Content = placeholder = new Placeholder
-                {
-                    Text = "No tablets are detected."
-                }
-            });
-
-            control.Pages.Add(new TabPage
-            {
-                Text = NativeTabText("Console"),
-                Padding = 5,
-                Content = logView = new()
-            });
-
-            this.Content = new StackLayout
+            // App selector is a header of the content pane (not spanning the sidebar), so it lines
+            // up with the settings cards and the sidebar runs the full window height beside it.
+            var contentPane = new StackLayout
             {
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Items =
                 {
-                    new StackLayoutItem { Control = appSelector = new ApplicationBindingSelector() },
-                    new StackLayoutItem { Expand = true, Control = tabControl = control }
+                    new StackLayoutItem { Control = appSelector },
+                    new StackLayoutItem { Expand = true, Control = contentPanel }
                 }
+            };
+
+            this.Content = new Splitter
+            {
+                Orientation = Orientation.Horizontal,
+                FixedPanel = SplitterFixedPanel.Panel1,
+                Panel1MinimumSize = 170,
+                Position = 190,
+                Panel1 = sidebar,
+                Panel2 = contentPane
             };
 
             outputModeEditor.ProfileBinding.Bind(ProfileBinding);
@@ -127,15 +116,21 @@ namespace OpenTabletDriver.UX.Controls
             base.Dispose(disposing);
         }
 
-        private TabControl tabControl;
+        private readonly SidebarNav sidebar;
+        private readonly Panel contentPanel;
+        private readonly List<SidebarNav.NavItem> masterOrder;
+
         private Placeholder placeholder;
         private LogView logView;
         private OutputModeEditor outputModeEditor;
         private BindingEditor penBindingEditor, auxBindingEditor, mouseBindingEditor;
         private List<BindingEditor> wheelBindingEditors = [];
+        private List<SidebarNav.NavItem> wheelItems = [];
         private ApplicationBindingSelector appSelector;
         private PluginSettingStoreCollectionEditor<IPositionedPipelineElement<IDeviceReport>> filterEditor;
         private PluginSettingStoreCollectionEditor<ITool> toolEditor;
+
+        private readonly SidebarNav.NavItem tabletItem, penItem, auxItem, mouseItem, toolsItem, filtersItem, infoItem, consoleItem;
 
         private Profile? profile;
 
@@ -160,49 +155,46 @@ namespace OpenTabletDriver.UX.Controls
 
             OnTabletChanged(tablet);
 
-            if (Platform.IsMac)
-                tabControl.Pages.Clear();
-
             if (tablet != null)
             {
-                bool switchToTablet = tabControl.SelectedPage == placeholder.Parent;
+                bool switchToTablet = sidebar.SelectedItem == infoItem;
 
-                SetPageVisibility(placeholder, false);
-                SetPageVisibility(outputModeEditor, true);
-                SetPageVisibility(penBindingEditor, true);
-                SetPageVisibility(auxBindingEditor, tablet.Properties.Specifications.AuxiliaryButtons != null);
+                SetPageVisibility(infoItem, false);
+                SetPageVisibility(tabletItem, true);
+                SetPageVisibility(penItem, true);
+                SetPageVisibility(auxItem, tablet.Properties.Specifications.AuxiliaryButtons != null);
 
-                for (int i = 0; i < wheelBindingEditors.Count; i++)
-                    SetPageVisibility(wheelBindingEditors[i], (tablet.Properties.Specifications.Wheels?.Count ?? 0) > i);
+                for (int i = 0; i < wheelItems.Count; i++)
+                    SetPageVisibility(wheelItems[i], (tablet.Properties.Specifications.Wheels?.Count ?? 0) > i);
 
-                SetPageVisibility(mouseBindingEditor, tablet.Properties.Specifications.MouseButtons != null);
-                SetPageVisibility(toolEditor, true);
-                SetPageVisibility(filterEditor, true);
+                SetPageVisibility(mouseItem, tablet.Properties.Specifications.MouseButtons != null);
+                SetPageVisibility(toolsItem, true);
+                SetPageVisibility(filtersItem, true);
 
-                if (switchToTablet)
-                    tabControl.SelectedIndex = 0;
+                if (switchToTablet || sidebar.SelectedIndex < 0)
+                    sidebar.SelectedIndex = 0;
             }
             else
             {
-                SetPageVisibility(placeholder, true);
-                SetPageVisibility(outputModeEditor, false);
-                SetPageVisibility(penBindingEditor, false);
-                SetPageVisibility(auxBindingEditor, false);
-                foreach (var controlItem in wheelBindingEditors)
-                    SetPageVisibility(controlItem, false);
-                SetPageVisibility(mouseBindingEditor, false);
-                SetPageVisibility(toolEditor, false);
-                SetPageVisibility(filterEditor, false);
+                SetPageVisibility(infoItem, true);
+                SetPageVisibility(tabletItem, false);
+                SetPageVisibility(penItem, false);
+                SetPageVisibility(auxItem, false);
+                foreach (var wheelItem in wheelItems)
+                    SetPageVisibility(wheelItem, false);
+                SetPageVisibility(mouseItem, false);
+                SetPageVisibility(toolsItem, false);
+                SetPageVisibility(filtersItem, false);
 
-                if (tabControl.SelectedPage != logView.Parent)
-                {
-                    tabControl.SelectedIndex = Profile == null ?
-                        tabControl.Pages.IndexOf(placeholder.Parent as TabPage) :
-                        0;
-                }
+                if (sidebar.SelectedItem != consoleItem)
+                    sidebar.SelectedIndex = sidebar.IndexOf(infoItem);
             }
 
-            SetPageVisibility(logView, true);
+            SetPageVisibility(consoleItem, true);
+
+            // Fall back to a valid selection if the previously-selected page was just hidden.
+            if (sidebar.SelectedIndex < 0 && sidebar.Count > 0)
+                sidebar.SelectedIndex = 0;
         });
 
         /// <summary>
@@ -240,14 +232,13 @@ namespace OpenTabletDriver.UX.Controls
                     var wheelBindingEditor = new WheelBindingEditor(i);
                     wheelBindingEditor.ProfileBinding.Bind(ProfileBinding);
                     wheelBindingEditor.BindingSettingsOverride = appSelector.SelectedApp?.BindingSettings;
-                    var pageIndex = tabControl.Pages.IndexOf(toolEditor.Parent as TabPage);
                     wheelBindingEditors.Add(wheelBindingEditor);
                     var wheelLabel = tabletWheels > 1 ? $"Wheel {i + 1}" : "Wheel";
-                    var wheelPage = new TabPage(wheelBindingEditor) { Text = NativeTabText(wheelLabel) };
-                    if (pageIndex >= 0)
-                        tabControl.Pages.Insert(pageIndex, wheelPage);
-                    else
-                        tabControl.Pages.Add(wheelPage);
+                    var wheelItem = new SidebarNav.NavItem(wheelLabel, "Wheel", wheelBindingEditor);
+                    wheelItems.Add(wheelItem);
+
+                    int insertIndex = masterOrder.IndexOf(toolsItem);
+                    masterOrder.Insert(insertIndex, wheelItem);
                 }
             }
         }
@@ -266,23 +257,29 @@ namespace OpenTabletDriver.UX.Controls
             }
         }
 
-        private void SetPageVisibility(Control control, bool visible)
+        // Adds/removes the entry from the visible sidebar, preserving masterOrder's relative
+        // ordering. Uniform across platforms - no TabControl-specific quirks to work around here.
+        private void SetPageVisibility(SidebarNav.NavItem item, bool visible)
         {
-            if (Platform.IsMac)
+            if (visible)
             {
-                if (visible)
+                if (sidebar.Contains(item))
+                    return;
+
+                int insertAt = 0;
+                foreach (var candidate in masterOrder)
                 {
-                    var page = control.Parent as TabPage;
-                    tabControl.Pages.Add(page);
+                    if (candidate == item)
+                        break;
+                    if (sidebar.Contains(candidate))
+                        insertAt++;
                 }
+                sidebar.Insert(insertAt, item);
             }
             else
             {
-                control.Parent.Visible = visible;
+                sidebar.Remove(item);
             }
         }
-
-        // Native tab text: no padding hack — let macOS render the standard (Liquid Glass) tab bar.
-        private static string NativeTabText(string text) => text;
     }
 }

@@ -34,6 +34,12 @@ namespace OpenTabletDriver.UX
 
         public CancellationTokenSource Canceler { get; } = new();
 
+        // Lets a platform-specific Program.cs (e.g. OpenTabletDriver.UX.Wpf) reach into the
+        // native toolkit right after Eto creates it, for things Eto itself doesn't expose
+        // (e.g. WPF's native Fluent theme/dark-mode hook). Kept as a plain event here so this
+        // shared, cross-platform file never references a platform-specific type.
+        public static event Action<Application>? ApplicationCreated;
+
         public static void Run(string platform, string[] args)
         {
             var commandLineOptions = ParseCmdLineOptions(args);
@@ -55,6 +61,7 @@ namespace OpenTabletDriver.UX
         private static void RunInternal(string platform, CommandLineOptions options)
         {
             var app = new Application(platform);
+            ApplicationCreated?.Invoke(app);
             var mainForm = new MainForm();
             if (options.StartMinimized)
             {

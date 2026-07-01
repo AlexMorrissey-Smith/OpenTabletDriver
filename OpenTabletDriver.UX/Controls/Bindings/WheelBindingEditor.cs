@@ -21,10 +21,12 @@ namespace OpenTabletDriver.UX.Controls.Bindings
             this.Content = new Scrollable
             {
                 Border = BorderType.None,
+                ExpandContentWidth = true,
                 Content = new StackLayout
                 {
                     HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Spacing = 5,
+                    Spacing = 8,
+                    Padding = 12,
                     Items =
                     {
                         new Group
@@ -40,7 +42,7 @@ namespace OpenTabletDriver.UX.Controls.Bindings
                                     {
                                         Text = "Clockwise Rotation",
                                         Orientation = Orientation.Horizontal,
-                                        ExpandContent = false,
+                                        ExpandContent = true,
                                         Content = clockwiseButton = new BindingDisplay()
                                     },
                                     new UnitGroup
@@ -71,7 +73,7 @@ namespace OpenTabletDriver.UX.Controls.Bindings
                                     new Group
                                     {
                                         Text = "Counter-Clockwise Rotation",
-                                        ExpandContent = false,
+                                        ExpandContent = true,
                                         Orientation = Orientation.Horizontal,
                                         Content = counterClockwiseButton = new BindingDisplay()
                                     },

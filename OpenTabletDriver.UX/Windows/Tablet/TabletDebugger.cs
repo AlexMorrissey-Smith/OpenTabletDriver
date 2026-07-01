@@ -536,9 +536,9 @@ namespace OpenTabletDriver.UX.Windows.Tablet
             UpdateFilterList(_debuggedTablets, tabletNames.ToArray(), viewmodel.IgnoredTablets);
         }
 
+        // Card background is now uniform across orientations, so no color override is needed here.
         private class DebuggerGroup : Group
         {
-            protected override Color VerticalBackgroundColor => base.HorizontalBackgroundColor;
         }
 
         private class TabletVisualizer : ScheduledDrawable

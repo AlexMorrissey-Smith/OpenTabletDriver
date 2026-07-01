@@ -21,6 +21,7 @@ namespace OpenTabletDriver.UX.Wpf
                 Eto.Platform.AllowReinitialize = true;
             }
 
+            App.ApplicationCreated += _ => WindowsTheme.TryApplySystemTheme();
             App.Run(Eto.Platforms.Wpf, args);
         }
     }

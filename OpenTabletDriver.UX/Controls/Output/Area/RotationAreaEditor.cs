@@ -18,7 +18,7 @@ namespace OpenTabletDriver.UX.Controls.Output.Area
                         Unit = "°",
                         ToolTip = "Angle of rotation about the center of the area.",
                         Orientation = Orientation.Horizontal,
-                        Content = rotation = new FloatNumberBox()
+                        Content = rotation = new FloatNumberBox { Width = 68 }
                     }
                 }
             );
