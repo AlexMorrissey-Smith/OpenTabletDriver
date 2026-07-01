@@ -238,6 +238,12 @@ namespace OpenTabletDriver.Daemon
                     profile.BindingSettings.MatchSpecifications(dev.Properties.Specifications);
                     profile.BindingSettings.ApplyTabletSpecificDefaults(dev.Properties.Name);
 
+                    foreach (var appProfile in profile.AppBindings)
+                    {
+                        appProfile.BindingSettings.MatchSpecifications(dev.Properties.Specifications);
+                        appProfile.BindingSettings.ApplyTabletSpecificDefaults(dev.Properties.Name);
+                    }
+
                     dev.OutputMode = profile.OutputMode.Construct<IOutputMode>(tabletReference);
 
                     if (dev.OutputMode != null)
@@ -270,7 +276,7 @@ namespace OpenTabletDriver.Daemon
                     if (dev.OutputMode is { } outputMode)
                     {
                         outputMode.Tablet = tabletReference;
-                        var bindingHandler = CreateBindingHandler(dev, outputMode, profile.BindingSettings);
+                        var bindingHandler = CreateBindingHandler(dev, outputMode, profile);
                         SetOutputModeElements(dev, outputMode, profile, bindingHandler);
 
                         outputMode.DisablePressure = profile.BindingSettings.DisablePressure;
@@ -489,7 +495,7 @@ namespace OpenTabletDriver.Daemon
             }
         }
 
-        private static BindingHandler CreateBindingHandler(InputDeviceTree dev, IOutputMode outputMode, BindingSettings settings)
+        private static BindingHandler CreateBindingHandler(InputDeviceTree dev, IOutputMode outputMode, Profile profile)
         {
             string group = dev.Properties.Name;
             var tabletReference = outputMode.Tablet;
@@ -521,7 +527,25 @@ namespace OpenTabletDriver.Daemon
             if (pointer is IPenActionHandler penActionHandler)
                 bindingServiceProvider.AddService(() => penActionHandler);
 
-            var tip = bindingHandler.Tip = new ThresholdBindingState
+            var globalSet = BuildBindingSet(tabletReference, profile.BindingSettings, bindingServiceProvider, group);
+
+            var appOverrides = new Dictionary<string, BindingSet>();
+            foreach (var appProfile in profile.AppBindings)
+            {
+                appOverrides[appProfile.BundleIdentifier] = BuildBindingSet(
+                    tabletReference, appProfile.BindingSettings, bindingServiceProvider, $"{group} [{appProfile.DisplayName}]");
+            }
+
+            bindingHandler.SetBindingSets(globalSet, appOverrides);
+
+            return bindingHandler;
+        }
+
+        private static BindingSet BuildBindingSet(TabletReference tabletReference, BindingSettings settings, IServiceManager bindingServiceProvider, string group)
+        {
+            var bindingSet = new BindingSet(tabletReference);
+
+            var tip = bindingSet.Tip = new ThresholdBindingState
             {
                 Binding = settings.TipButton?.Construct<IBinding>(bindingServiceProvider, tabletReference),
 
@@ -533,7 +557,7 @@ namespace OpenTabletDriver.Daemon
                 Log.Write(group, $"Tip Binding: [{tip.Binding}]@{tip.ActivationThreshold}%");
             }
 
-            var eraser = bindingHandler.Eraser = new ThresholdBindingState
+            var eraser = bindingSet.Eraser = new ThresholdBindingState
             {
                 Binding = settings.EraserButton?.Construct<IBinding>(bindingServiceProvider, tabletReference),
                 ActivationThreshold = settings.EraserActivationThreshold
@@ -546,8 +570,8 @@ namespace OpenTabletDriver.Daemon
 
             if (settings.PenButtons.Any(b => b?.Path != null))
             {
-                SetBindingHandlerCollectionSettings(bindingServiceProvider, settings.PenButtons, bindingHandler.PenButtons, tabletReference, settings.EnableDragBindings);
-                Log.Write(group, $"Pen Bindings: " + string.Join(", ", bindingHandler.PenButtons.Select(b => b.Value?.Binding)));
+                SetBindingHandlerCollectionSettings(bindingServiceProvider, settings.PenButtons, bindingSet.PenButtons, tabletReference, settings.EnableDragBindings);
+                Log.Write(group, $"Pen Bindings: " + string.Join(", ", bindingSet.PenButtons.Select(b => b.Value?.Binding)));
 
                 if (settings.EnableDragBindings)
                     Log.Write(group, "Pen Bindings are configured as drag-only (requires pen pressure to activate)");
@@ -555,14 +579,14 @@ namespace OpenTabletDriver.Daemon
 
             if (settings.AuxButtons.Any(b => b?.Path != null))
             {
-                SetBindingHandlerCollectionSettings(bindingServiceProvider, settings.AuxButtons, bindingHandler.AuxButtons, tabletReference);
-                Log.Write(group, $"Express Key Bindings: " + string.Join(", ", bindingHandler.AuxButtons.Select(b => b.Value?.Binding)));
+                SetBindingHandlerCollectionSettings(bindingServiceProvider, settings.AuxButtons, bindingSet.AuxButtons, tabletReference);
+                Log.Write(group, $"Express Key Bindings: " + string.Join(", ", bindingSet.AuxButtons.Select(b => b.Value?.Binding)));
             }
 
             for (int wheelIndex = 0; wheelIndex < settings.WheelBindings.Count; wheelIndex++)
             {
                 var wheelBindingSetting = settings.WheelBindings[wheelIndex];
-                var wheelBindingHandler = bindingHandler.Wheels[wheelIndex];
+                var wheelBindingHandler = bindingSet.Wheels[wheelIndex];
 
                 if (wheelBindingSetting.WheelButtons.Any(b => b?.Path != null))
                 {
@@ -600,16 +624,16 @@ namespace OpenTabletDriver.Daemon
 
             if (settings.MouseButtons.Any(b => b?.Path != null))
             {
-                SetBindingHandlerCollectionSettings(bindingServiceProvider, settings.MouseButtons, bindingHandler.MouseButtons, tabletReference);
-                Log.Write(group, $"Mouse Button Bindings: [" + string.Join("], [", bindingHandler.MouseButtons.Select(b => b.Value?.Binding)) + "]");
+                SetBindingHandlerCollectionSettings(bindingServiceProvider, settings.MouseButtons, bindingSet.MouseButtons, tabletReference);
+                Log.Write(group, $"Mouse Button Bindings: [" + string.Join("], [", bindingSet.MouseButtons.Select(b => b.Value?.Binding)) + "]");
             }
 
-            var scrollUp = bindingHandler.MouseScrollUp = new BindingState
+            var scrollUp = bindingSet.MouseScrollUp = new BindingState
             {
                 Binding = settings.MouseScrollUp?.Construct<IBinding>(bindingServiceProvider, tabletReference)
             };
 
-            var scrollDown = bindingHandler.MouseScrollDown = new BindingState
+            var scrollDown = bindingSet.MouseScrollDown = new BindingState
             {
                 Binding = settings.MouseScrollDown?.Construct<IBinding>(bindingServiceProvider, tabletReference)
             };
@@ -619,7 +643,7 @@ namespace OpenTabletDriver.Daemon
                 Log.Write(group, $"Mouse Scroll: Up: [{scrollUp.Binding}] Down: [{scrollDown.Binding}]");
             }
 
-            return bindingHandler;
+            return bindingSet;
         }
 
         private static void SetBindingHandlerCollectionSettings(IServiceManager serviceManager, PluginSettingStoreCollection collection, Dictionary<int, BindingState?> targetDict, TabletReference tabletReference, bool bindingRequiresPressure = false)

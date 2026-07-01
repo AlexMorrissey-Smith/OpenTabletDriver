@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using Newtonsoft.Json;
 using OpenTabletDriver.Desktop.Output;
 using OpenTabletDriver.Desktop.Reflection;
@@ -14,6 +15,7 @@ namespace OpenTabletDriver.Desktop.Profiles
         private RelativeModeSettings? relativeMode;
         private BindingSettings bindings = new BindingSettings();
         private PluginSettingStoreCollection filters = new PluginSettingStoreCollection();
+        private ObservableCollection<AppBindingProfile> appBindings = new ObservableCollection<AppBindingProfile>();
 
         [JsonProperty(nameof(Tablet))]
         public required string Tablet
@@ -55,6 +57,13 @@ namespace OpenTabletDriver.Desktop.Profiles
         {
             set => this.RaiseAndSetIfChanged(ref bindings, value);
             get => bindings;
+        }
+
+        [JsonProperty(nameof(AppBindings))]
+        public ObservableCollection<AppBindingProfile> AppBindings
+        {
+            set => this.RaiseAndSetIfChanged(ref appBindings, value);
+            get => appBindings;
         }
 
         private static Type DefaultOutputModeType =>

@@ -6,7 +6,20 @@ namespace OpenTabletDriver.UX.Controls.Bindings
 {
     public abstract class BindingEditor : Panel
     {
-        public DirectBinding<BindingSettings> SettingsBinding => ProfileBinding.Child(b => b!.BindingSettings);
+        // Reads/writes BindingSettingsOverride when set (app-specific editing), otherwise
+        // falls back to the selected tablet Profile's own BindingSettings (today's behavior).
+        public DirectBinding<BindingSettings> SettingsBinding => new DelegateBinding<BindingSettings>(
+            () => BindingSettingsOverride ?? Profile?.BindingSettings!,
+            v =>
+            {
+                if (BindingSettingsOverride != null)
+                    BindingSettingsOverride = v;
+                else if (Profile != null)
+                    Profile.BindingSettings = v;
+            },
+            h => { ProfileChanged += h; BindingSettingsOverrideChanged += h; },
+            h => { ProfileChanged -= h; BindingSettingsOverrideChanged -= h; }
+        );
 
         private Profile? profile;
         public Profile? Profile
@@ -36,5 +49,18 @@ namespace OpenTabletDriver.UX.Controls.Bindings
                 );
             }
         }
+
+        private BindingSettings? bindingSettingsOverride;
+        public BindingSettings? BindingSettingsOverride
+        {
+            set
+            {
+                this.bindingSettingsOverride = value;
+                this.BindingSettingsOverrideChanged?.Invoke(this, EventArgs.Empty);
+            }
+            get => this.bindingSettingsOverride;
+        }
+
+        public event EventHandler<EventArgs>? BindingSettingsOverrideChanged;
     }
 }

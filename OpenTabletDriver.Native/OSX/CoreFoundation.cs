@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace OpenTabletDriver.Native.OSX
 {
@@ -32,6 +33,19 @@ namespace OpenTabletDriver.Native.OSX
 
         public static IntPtr CreateString(string value) =>
             CFStringCreateWithCString(IntPtr.Zero, value, CFStringEncodingUTF8);
+
+        [DllImport(CFLib)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private static extern bool CFStringGetCString(IntPtr theString, StringBuilder buffer, long bufferSize, uint encoding);
+
+        public static string? GetString(IntPtr cfString, int bufferSize = 512)
+        {
+            if (cfString == IntPtr.Zero)
+                return null;
+
+            var buffer = new StringBuilder(bufferSize);
+            return CFStringGetCString(cfString, buffer, buffer.Capacity, CFStringEncodingUTF8) ? buffer.ToString() : null;
+        }
 
         [DllImport(CFLib)]
         public static extern long CFArrayGetCount(IntPtr array);

@@ -42,14 +42,13 @@ namespace OpenTabletDriver.Tests.Binding
             var configuration = TestData.DeviceConfigurationProvider.TabletConfigurations
                 .Single(config => config.Name == "Gaomon WH851");
 
-            return new BindingHandler(new TabletReference(configuration, configuration.DigitizerIdentifiers))
+            var bindingHandler = new BindingHandler(new TabletReference(configuration, configuration.DigitizerIdentifiers));
+            bindingHandler.Global.Tip = new ThresholdBindingState
             {
-                Tip = new ThresholdBindingState
-                {
-                    Binding = binding,
-                    ActivationThreshold = 1
-                }
+                Binding = binding,
+                ActivationThreshold = 1
             };
+            return bindingHandler;
         }
 
         private static byte[] CreateOfficialBleContactReport() =>

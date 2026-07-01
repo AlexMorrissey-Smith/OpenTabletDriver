@@ -20,6 +20,9 @@ namespace OpenTabletDriver.Native.OSX
         public static extern IntPtr objc_msgSend_IntPtr_int(IntPtr receiver, IntPtr selector, int arg);
 
         [DllImport(ObjCLibrary, EntryPoint = "objc_msgSend")]
+        public static extern IntPtr objc_msgSend_IntPtr_IntPtr(IntPtr receiver, IntPtr selector, IntPtr arg);
+
+        [DllImport(ObjCLibrary, EntryPoint = "objc_msgSend")]
         public static extern int objc_msgSend_int(IntPtr receiver, IntPtr selector);
 
         [DllImport(ObjCLibrary, EntryPoint = "objc_msgSend")]

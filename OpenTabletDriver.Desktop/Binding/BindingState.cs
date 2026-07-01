@@ -37,5 +37,16 @@ namespace OpenTabletDriver.Desktop.Binding
             if (newState && Binding is IReportBinding reportBinding)
                 reportBinding.OnReport(tablet, report);
         }
+
+        // Releases a held binding without a corresponding physical release, so switching
+        // the active binding set (e.g. app-specific bindings on foreground-app change)
+        // never leaves a key/button stuck down.
+        public void ForceRelease(TabletReference tablet, IDeviceReport report)
+        {
+            if (PreviousState && Binding is IStateBinding stateBinding)
+                stateBinding.Release(tablet, report);
+
+            PreviousState = false;
+        }
     }
 }

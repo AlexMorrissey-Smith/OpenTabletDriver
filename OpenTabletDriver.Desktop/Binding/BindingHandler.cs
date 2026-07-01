@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using OpenTabletDriver.Desktop.Interop;
 using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Attributes;
 using OpenTabletDriver.Plugin.Output;
@@ -14,24 +15,17 @@ namespace OpenTabletDriver.Desktop.Binding
         public BindingHandler(TabletReference tablet)
         {
             this.tablet = tablet;
-
-            int wheelIndex = 0;
-            foreach (var wheel in tablet.Properties.Specifications.Wheels ?? [])
-                Wheels.Add(wheelIndex++, new WheelBindings(wheel));
+            Global = ActiveBindingSet = new BindingSet(tablet);
         }
 
-        public ThresholdBindingState? Tip { set; get; }
-        public ThresholdBindingState? Eraser { set; get; }
-        private bool _isEraser;
+        /// <summary>The default binding set ("All other applications" in Wacom terms).</summary>
+        public BindingSet Global { get; private set; }
 
-        public Dictionary<int, BindingState?> PenButtons { set; get; } = new Dictionary<int, BindingState?>();
-        public Dictionary<int, BindingState?> AuxButtons { set; get; } = new Dictionary<int, BindingState?>();
-        public Dictionary<int, BindingState?> MouseButtons { set; get; } = new Dictionary<int, BindingState?>();
+        /// <summary>App-specific binding sets, keyed by bundle identifier.</summary>
+        public IReadOnlyDictionary<string, BindingSet> AppOverrides { get; private set; } = new Dictionary<string, BindingSet>();
 
-        public BindingState? MouseScrollDown { set; get; }
-        public BindingState? MouseScrollUp { set; get; }
-
-        public Dictionary<int, WheelBindings> Wheels { get; } = new Dictionary<int, WheelBindings>();
+        /// <summary>The binding set currently being dispatched through, based on the foreground app.</summary>
+        public BindingSet ActiveBindingSet { get; private set; }
 
         public PipelinePosition Position => PipelinePosition.PostTransform;
 
@@ -43,12 +37,28 @@ namespace OpenTabletDriver.Desktop.Binding
         private long _suppressUntil;
         private const long SuppressGraceMs = 100; // ride over single-frame Bluetooth button-bit drops
 
+        private string? _activeBundleId;
+        private long _lastForegroundCheck;
+        private const long ForegroundCheckIntervalMs = 150; // foreground app changes far slower than tablet report rate
+
+        public void SetBindingSets(BindingSet global, IReadOnlyDictionary<string, BindingSet> appOverrides)
+        {
+            Global = global;
+            AppOverrides = appOverrides;
+            ActiveBindingSet = global;
+            _activeBundleId = null;
+            _lastForegroundCheck = 0;
+        }
+
         public void Consume(IDeviceReport? report)
         {
             _suppressTabletOutput = false;
 
             if (report != null)
+            {
+                UpdateActiveBindingSet(report);
                 HandleBinding(report);
+            }
 
             // While a report binding (e.g. Pen Scroll) is held, swallow positional pen
             // reports so the cursor freezes and no tip clicks/drags leak through. The
@@ -58,6 +68,42 @@ namespace OpenTabletDriver.Desktop.Binding
                 report = null;
 
             Emit?.Invoke(report);
+        }
+
+        // Picks the binding set for the current foreground app, throttled since
+        // NSWorkspace lookups cost far more than reading a cached field and the
+        // foreground app changes orders of magnitude slower than tablet reports.
+        private void UpdateActiveBindingSet(IDeviceReport report)
+        {
+            if (AppOverrides.Count == 0)
+                return;
+
+            long now = Environment.TickCount64;
+            if (now - _lastForegroundCheck < ForegroundCheckIntervalMs)
+                return;
+            _lastForegroundCheck = now;
+
+            bool detected = DesktopInterop.ForegroundApp.TryGetForegroundApp(out var id, out _);
+            string? bundleId = detected ? id : null;
+            if (bundleId == _activeBundleId)
+                return;
+
+            _activeBundleId = bundleId;
+
+            BindingSet? overrideSet = null;
+            bool hasOverride = bundleId != null && AppOverrides.TryGetValue(bundleId, out overrideSet);
+            var nextSet = hasOverride ? overrideSet! : Global;
+
+            Log.Write(nameof(BindingHandler),
+                $"Foreground app changed to '{bundleId}' → {(hasOverride ? "app-specific" : "All Applications")} bindings",
+                LogLevel.Debug);
+
+            if (!ReferenceEquals(nextSet, ActiveBindingSet))
+            {
+                // Don't leave a key/button stuck down from the outgoing app's bindings.
+                ActiveBindingSet.ForceReleaseAll(tablet, report);
+                ActiveBindingSet = nextSet;
+            }
         }
 
         public void HandleBinding(IDeviceReport report)
@@ -80,6 +126,8 @@ namespace OpenTabletDriver.Desktop.Binding
                 HandleOutOfRangeReport(tablet, report);
         }
 
+        private bool _isEraser;
+
         private readonly HashSet<int> _triedRelativeWheels = [];
 
         private void HandleRelativeWheelReport(TabletReference tabletReference, IRelativeWheelReport relativeWheelReport)
@@ -88,7 +136,7 @@ namespace OpenTabletDriver.Desktop.Binding
             {
                 int reportDelta = relativeWheelReport.AnalogDeltas[i];
 
-                if (Wheels.TryGetValue(i, out var wheelBinding))
+                if (ActiveBindingSet.Wheels.TryGetValue(i, out var wheelBinding))
                     wheelBinding.HandleRelativeWheel(tabletReference, relativeWheelReport, reportDelta);
                 else if (reportDelta != 0 && _triedRelativeWheels.Add(i))
                 {
@@ -107,7 +155,7 @@ namespace OpenTabletDriver.Desktop.Binding
             {
                 uint? reportPosition = absoluteWheelReport.AnalogPositions[i];
 
-                if (Wheels.TryGetValue(i, out var wheelBinding))
+                if (ActiveBindingSet.Wheels.TryGetValue(i, out var wheelBinding))
                     wheelBinding.HandleAbsoluteWheel(tabletReference, absoluteWheelReport, reportPosition);
                 else if (reportPosition != null && _triedAbsoluteWheels.Add(i))
                 {
@@ -124,7 +172,7 @@ namespace OpenTabletDriver.Desktop.Binding
         {
             for (int i = 0; i < wheelButtonReport.WheelButtons.Length; i++)
             {
-                if (Wheels.TryGetValue(i, out var wheelBinding))
+                if (ActiveBindingSet.Wheels.TryGetValue(i, out var wheelBinding))
                 {
                     bool[] wheelButton = wheelButtonReport.WheelButtons[i];
                     HandleBindingCollection(tabletReference, wheelButtonReport, wheelBinding.WheelButtons, wheelButton);
@@ -140,12 +188,12 @@ namespace OpenTabletDriver.Desktop.Binding
 
         private void HandleOutOfRangeReport(TabletReference tablet, IDeviceReport report)
         {
-            Tip?.Invoke(tablet, report, 0);
-            Eraser?.Invoke(tablet, report, 0);
+            ActiveBindingSet.Tip?.Invoke(tablet, report, 0);
+            ActiveBindingSet.Eraser?.Invoke(tablet, report, 0);
 
-            for (var i = 0; i < PenButtons.Count; i++)
+            for (var i = 0; i < ActiveBindingSet.PenButtons.Count; i++)
             {
-                if (PenButtons.TryGetValue(i, out var binding))
+                if (ActiveBindingSet.PenButtons.TryGetValue(i, out var binding))
                     binding?.Invoke(tablet, report, false);
             }
         }
@@ -166,23 +214,23 @@ namespace OpenTabletDriver.Desktop.Binding
             uint realPressure = report.Pressure;
             float pressurePercent = suppress ? 0f : (float)report.Pressure / (float)pen.MaxPressure * 100f;
             if (_isEraser)
-                Eraser?.Invoke(tablet, report, pressurePercent);
+                ActiveBindingSet.Eraser?.Invoke(tablet, report, pressurePercent);
             else
-                Tip?.Invoke(tablet, report, pressurePercent);
+                ActiveBindingSet.Tip?.Invoke(tablet, report, pressurePercent);
 
             // Tip/Eraser threshold state zeroes report.Pressure when not pressed; restore the
             // real value so a report binding (Pen Scroll) can still detect pen contact.
             if (suppress)
                 report.Pressure = realPressure;
 
-            HandleBindingCollection(tablet, report, PenButtons, report.PenButtons);
+            HandleBindingCollection(tablet, report, ActiveBindingSet.PenButtons, report.PenButtons);
         }
 
         private bool AnyHeldButtonIsReportBinding(bool[] states)
         {
             for (int i = 0; i < states.Length; i++)
             {
-                if (states[i] && PenButtons.TryGetValue(i, out var binding) && binding?.Binding is IReportBinding)
+                if (states[i] && ActiveBindingSet.PenButtons.TryGetValue(i, out var binding) && binding?.Binding is IReportBinding)
                     return true;
             }
             return false;
@@ -190,15 +238,15 @@ namespace OpenTabletDriver.Desktop.Binding
 
         private void HandleAuxiliaryReport(TabletReference tablet, IAuxReport report)
         {
-            HandleBindingCollection(tablet, report, AuxButtons, report.AuxButtons);
+            HandleBindingCollection(tablet, report, ActiveBindingSet.AuxButtons, report.AuxButtons);
         }
 
         private void HandleMouseReport(TabletReference tablet, IMouseReport report)
         {
-            HandleBindingCollection(tablet, report, MouseButtons, report.MouseButtons);
+            HandleBindingCollection(tablet, report, ActiveBindingSet.MouseButtons, report.MouseButtons);
 
-            MouseScrollDown?.Invoke(tablet, report, report.Scroll.Y < 0);
-            MouseScrollUp?.Invoke(tablet, report, report.Scroll.Y > 0);
+            ActiveBindingSet.MouseScrollDown?.Invoke(tablet, report, report.Scroll.Y < 0);
+            ActiveBindingSet.MouseScrollUp?.Invoke(tablet, report, report.Scroll.Y > 0);
         }
 
         private static void HandleBindingCollection(TabletReference tablet, IDeviceReport report, Dictionary<int, BindingState?> bindings, bool[] newStates)

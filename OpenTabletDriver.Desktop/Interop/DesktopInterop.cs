@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using Octokit;
 using OpenTabletDriver.Desktop.Interop.Display;
+using OpenTabletDriver.Desktop.Interop.Input;
 using OpenTabletDriver.Desktop.Interop.Input.Absolute;
 using OpenTabletDriver.Desktop.Interop.Input.Exotic;
 using OpenTabletDriver.Desktop.Interop.Input.Keyboard;
@@ -80,6 +81,12 @@ namespace OpenTabletDriver.Desktop.Interop
             PluginPlatform.Linux => new LinuxTimer(),
             PluginPlatform.MacOS => new MacOSTimer(),
             _ => new FallbackTimer()
+        };
+
+        public static IForegroundAppProvider ForegroundApp => CurrentPlatform switch
+        {
+            PluginPlatform.MacOS => new MacOSForegroundAppProvider(),
+            _ => new NullForegroundAppProvider()
         };
 
         public static IAbsolutePointer? AbsolutePointer => CurrentPlatform switch

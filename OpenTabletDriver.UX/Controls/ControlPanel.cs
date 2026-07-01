@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Eto.Drawing;
 using Eto.Forms;
 using OpenTabletDriver.Desktop.Interop;
 using OpenTabletDriver.Desktop.Profiles;
@@ -76,14 +77,35 @@ namespace OpenTabletDriver.UX.Controls
                 Content = logView = new()
             });
 
-            this.Content = tabControl = control;
+            this.Content = new StackLayout
+            {
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem { Control = appSelector = new ApplicationBindingSelector() },
+                    new StackLayoutItem { Expand = true, Control = tabControl = control }
+                }
+            };
 
             outputModeEditor.ProfileBinding.Bind(ProfileBinding);
             penBindingEditor.ProfileBinding.Bind(ProfileBinding);
             auxBindingEditor.ProfileBinding.Bind(ProfileBinding);
             mouseBindingEditor.ProfileBinding.Bind(ProfileBinding);
+            appSelector.ProfileBinding.Bind(ProfileBinding);
             filterEditor.StoreCollectionBinding.Bind(ProfileBinding.Child(p => p!.Filters)!);
             toolEditor.StoreCollectionBinding.Bind(App.Current, a => a.Settings.Tools);
+
+            // App-specific bindings cover pen/buttons/wheel only (matches Wacom): the
+            // selector never touches outputModeEditor/toolEditor/filterEditor.
+            appSelector.SelectedAppChanged += (_, _) =>
+            {
+                var settings = appSelector.SelectedApp?.BindingSettings;
+                penBindingEditor.BindingSettingsOverride = settings;
+                auxBindingEditor.BindingSettingsOverride = settings;
+                mouseBindingEditor.BindingSettingsOverride = settings;
+                foreach (var wheelEditor in wheelBindingEditors)
+                    wheelEditor.BindingSettingsOverride = settings;
+            };
 
             outputModeEditor.SetDisplaySize(DesktopInterop.VirtualScreen?.Displays);
 
@@ -111,6 +133,7 @@ namespace OpenTabletDriver.UX.Controls
         private OutputModeEditor outputModeEditor;
         private BindingEditor penBindingEditor, auxBindingEditor, mouseBindingEditor;
         private List<BindingEditor> wheelBindingEditors = [];
+        private ApplicationBindingSelector appSelector;
         private PluginSettingStoreCollectionEditor<IPositionedPipelineElement<IDeviceReport>> filterEditor;
         private PluginSettingStoreCollectionEditor<ITool> toolEditor;
 
@@ -216,6 +239,7 @@ namespace OpenTabletDriver.UX.Controls
                 {
                     var wheelBindingEditor = new WheelBindingEditor(i);
                     wheelBindingEditor.ProfileBinding.Bind(ProfileBinding);
+                    wheelBindingEditor.BindingSettingsOverride = appSelector.SelectedApp?.BindingSettings;
                     var pageIndex = tabControl.Pages.IndexOf(toolEditor.Parent as TabPage);
                     wheelBindingEditors.Add(wheelBindingEditor);
                     var wheelLabel = tabletWheels > 1 ? $"Wheel {i + 1}" : "Wheel";
