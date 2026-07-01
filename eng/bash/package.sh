@@ -83,7 +83,8 @@ if [[ "${NET_RUNTIME}" =~ ^osx-.*$ ]]; then
   SELF_CONTAINED="true"
 
   PACKAGE_GEN=${PACKAGE_GEN:-"macos"}
-  PROJECTS+=('OpenTabletDriver.UX.MacOS')
+  # OpenTabletDriver.UX.MacOS is a net*-macos app (Microsoft.macOS backend) that produces its own
+  # .app bundle; the macos packaging script publishes it directly rather than the generic build().
 fi
 
 if [[ "${NET_RUNTIME}" =~ ^linux-.*$ ]]; then

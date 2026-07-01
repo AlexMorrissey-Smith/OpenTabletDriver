@@ -493,7 +493,7 @@ namespace OpenTabletDriver.Devices.MacOSHid
                     return -1;
                 }
 
-                var bridgePath = Path.Combine(AppContext.BaseDirectory, "OpenTabletDriver.WH851BleBridge");
+                var bridgePath = Path.Combine(AppContext.BaseDirectory, "OpenTabletDriver.BleBridge");
                 if (!File.Exists(bridgePath))
                 {
                     Log.Write("WH851 macOS HID", $"CoreBluetooth bridge helper was not found at '{bridgePath}'.", LogLevel.Warning);

@@ -1,8 +1,8 @@
 using System;
 using System.Linq;
+using AppKit;
 using Eto.Forms;
-using MonoMac.AppKit;
-using MonoMac.Foundation;
+using Foundation;
 using OpenTabletDriver.Desktop.Interop;
 
 namespace OpenTabletDriver.UX.MacOS;
@@ -38,7 +38,13 @@ internal class FormHandler : Eto.Mac.Forms.FormHandler
 
     public override void Show()
     {
-        NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+        // Activate() replaces the -activateIgnoringOtherApps: deprecated in macOS 14.
+        if (OperatingSystem.IsMacOSVersionAtLeast(14))
+            NSApplication.SharedApplication.Activate();
+        else
+#pragma warning disable CA1422
+            NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+#pragma warning restore CA1422
         base.Show();
     }
 
@@ -75,7 +81,7 @@ internal class FormHandler : Eto.Mac.Forms.FormHandler
         }
     }
 
-    private void UpdateActivationPolicy(object sender, EventArgs e)
+    private void UpdateActivationPolicy(object? sender, EventArgs e)
     {
         var hasNonMinimizedVisibleWindow =
             Application.Instance.Windows.Any(window => window.Visible && window.WindowState != WindowState.Minimized);

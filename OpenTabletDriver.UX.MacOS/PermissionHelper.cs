@@ -1,12 +1,14 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
-using MonoMac.AppKit;
-using MonoMac.Foundation;
-using MonoMac.ObjCRuntime;
+using AppKit;
+using Foundation;
+using ObjCRuntime;
 using OpenTabletDriver.Native.OSX;
 using OpenTabletDriver.Native.OSX.ApplicationServices;
 using OpenTabletDriver.Native.OSX.IOkit;
+// Microsoft.macOS also defines a CoreFoundation namespace; alias OTD's P/Invoke class to avoid it.
+using OsxCoreFoundation = OpenTabletDriver.Native.OSX.CoreFoundation;
 
 namespace OpenTabletDriver.UX.MacOS
 {
@@ -125,14 +127,14 @@ namespace OpenTabletDriver.UX.MacOS
 
         private static void axRequestAccess()
         {
-            var options = CoreFoundation.CFDictionaryCreateMutable(IntPtr.Zero, 0, IntPtr.Zero, IntPtr.Zero);
-            CoreFoundation.CFDictionaryAddValue(options, ApplicationServices.kAXTrustedCheckOptionPrompt, CoreFoundation.kCFBooleanTrue);
+            var options = OsxCoreFoundation.CFDictionaryCreateMutable(IntPtr.Zero, 0, IntPtr.Zero, IntPtr.Zero);
+            OsxCoreFoundation.CFDictionaryAddValue(options, ApplicationServices.kAXTrustedCheckOptionPrompt, OsxCoreFoundation.kCFBooleanTrue);
             ApplicationServices.AXIsProcessTrustedWithOptions(options);
         }
 
         private class KillOnQuitHandler : NSObject
         {
-            static KillOnQuitHandler handler;
+            static KillOnQuitHandler? handler;
 
 #pragma warning disable CA1822
             [Export("handleQuitEvent:withReplyEvent:")]
@@ -146,7 +148,7 @@ namespace OpenTabletDriver.UX.MacOS
             {
                 handler ??= new KillOnQuitHandler();
                 NSAppleEventManager.SharedAppleEventManager.SetEventHandler(handler,
-                    new MonoMac.ObjCRuntime.Selector("handleQuitEvent:withReplyEvent:"), AEEventClass.AppleEvent,
+                    new ObjCRuntime.Selector("handleQuitEvent:withReplyEvent:"), AEEventClass.AppleEvent,
                     AEEventID.QuitApplication);
             }
         }

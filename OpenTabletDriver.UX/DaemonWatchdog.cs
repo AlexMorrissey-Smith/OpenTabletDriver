@@ -23,7 +23,7 @@ namespace OpenTabletDriver.UX
             },
             PluginPlatform.MacOS => new ProcessStartInfo
             {
-                FileName = Path.Join(AppContext.BaseDirectory, "OpenTabletDriver.Daemon")
+                FileName = FindMacOSDaemon()
             },
             _ => new ProcessStartInfo
             {
@@ -35,6 +35,27 @@ namespace OpenTabletDriver.UX
         public static bool CanExecute =>
             File.Exists(startInfo.FileName) ||
             File.Exists(startInfo.Arguments);
+
+        // In the .NET-for-macOS app bundle the managed assemblies (and thus BaseDirectory) live in
+        // Contents/MonoBundle, while the daemon executable sits next to the native launcher in
+        // Contents/MacOS - probe both so the watchdog works in the bundle and in flat dev layouts.
+        private static string FindMacOSDaemon()
+        {
+            var baseDir = AppContext.BaseDirectory;
+            var candidates = new[]
+            {
+                Path.Join(baseDir, "OpenTabletDriver.Daemon"),
+                Path.GetFullPath(Path.Join(baseDir, "..", "MacOS", "OpenTabletDriver.Daemon"))
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            return candidates[0];
+        }
 
         public void Start()
         {

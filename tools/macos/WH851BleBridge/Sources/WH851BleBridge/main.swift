@@ -165,7 +165,7 @@ final class Bridge: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     private func log(_ value: String) {
-        let data = ("WH851BleBridge: \(value)\n").data(using: .utf8)!
+        let data = ("BleBridge: \(value)\n").data(using: .utf8)!
         FileHandle.standardError.write(data)
     }
 
@@ -183,7 +183,7 @@ private extension Array where Element == UInt8 {
 
 guard let argument = CommandLine.arguments.dropFirst().first,
       let identifier = UUID(uuidString: argument) else {
-    fputs("usage: OpenTabletDriver.WH851BleBridge <peripheral-uuid>\n", stderr)
+    fputs("usage: OpenTabletDriver.BleBridge <peripheral-uuid>\n", stderr)
     exit(2)
 }
 

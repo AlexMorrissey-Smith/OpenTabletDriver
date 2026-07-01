@@ -2,17 +2,30 @@
 
   <PropertyGroup Label="Project Properties">
     <OutputType>Exe</OutputType>
-    <TargetFramework>$(FrameworkBase)</TargetFramework>
+    <!-- Modern .NET-for-macOS backend (Microsoft.macOS) instead of the deprecated MonoMac-based
+         Eto.Platform.Mac64; MonoMac trips Apple's "won't launch in a future macOS" warning. -->
+    <TargetFramework>net10.0-macos26.0</TargetFramework>
+    <SupportedOSPlatformVersion>12.0</SupportedOSPlatformVersion>
     <RuntimeIdentifiers>osx-x64;osx-arm64</RuntimeIdentifiers>
+    <Nullable>enable</Nullable>
     <AutoreleasePoolSupport>true</AutoreleasePoolSupport>
+
+    <!-- App bundle metadata. -->
+    <ApplicationId>net.opentabletdriver</ApplicationId>
+    <ApplicationTitle>OpenTabletDriver</ApplicationTitle>
+    <CodesignEntitlements>entitlements.plist</CodesignEntitlements>
+
+    <!-- The .NET macOS SDK pins to a specific Xcode. Beta Xcode/macOS setups can override this
+         (and DEVELOPER_DIR) from the environment; on a matching machine it validates normally. -->
+    <ValidateXcodeVersion Condition="'$(ValidateXcodeVersion)' == ''">true</ValidateXcodeVersion>
   </PropertyGroup>
 
   <ItemGroup Label="NuGet Packages">
-    <PackageReference Include="Eto.Platform.Mac64" Version="2.11.0" />
+    <PackageReference Include="Eto.Platform.macOS" Version="2.11.0" />
   </ItemGroup>
-  
+
   <ItemGroup Label="Project References">
     <ProjectReference Include="..\OpenTabletDriver.UX\OpenTabletDriver.UX.csproj" />
   </ItemGroup>
-  
+
 </Project>
