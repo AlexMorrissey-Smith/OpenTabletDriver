@@ -106,6 +106,14 @@ namespace OpenTabletDriver.UX
         };
 
         private TrayIcon? trayIcon;
+
+        // Set before any real Application.Quit() so OnClosing knows to allow the
+        // window to close rather than hide it. Static because every quit entry
+        // point (menu, tray, Cmd+Q) must reach it and there is only one MainForm.
+        private static bool isQuitting;
+
+        internal static void SignalQuitting() => isQuitting = true;
+
         private DisplayLayoutWatcher? displayLayoutWatcher;
 
         public bool SilenceDaemonShutdown { get; set; }
@@ -174,7 +182,11 @@ namespace OpenTabletDriver.UX
                             break;
                     }
                 };
-                Application.Instance.Terminating += (sender, e) => trayIcon.Dispose();
+                Application.Instance.Terminating += (sender, e) =>
+                {
+                    isQuitting = true;
+                    trayIcon.Dispose();
+                };
             }
 
             if (App.EnableDaemonWatchdog)
@@ -216,7 +228,7 @@ namespace OpenTabletDriver.UX
         private static MenuBar ConstructLimitedMenu()
         {
             var quitCommand = new Command { MenuText = "Quit", Shortcut = Application.Instance.CommonModifier | Keys.Q };
-            quitCommand.Executed += (sender, e) => Application.Instance.Quit();
+            quitCommand.Executed += (sender, e) => { SignalQuitting(); Application.Instance.Quit(); };
 
             var aboutCommand = new Command { MenuText = "About...", Shortcut = Keys.F1 };
             aboutCommand.Executed += (sender, e) => App.Current.AboutWindow.Show();
@@ -247,7 +259,7 @@ namespace OpenTabletDriver.UX
         private MenuBar ConstructMenu()
         {
             var quitCommand = new Command { MenuText = "Quit", Shortcut = Application.Instance.CommonModifier | Keys.Q };
-            quitCommand.Executed += (sender, e) => Application.Instance.Quit();
+            quitCommand.Executed += (sender, e) => { SignalQuitting(); Application.Instance.Quit(); };
 
             var aboutCommand = new Command { MenuText = "About...", Shortcut = Keys.F1 };
             aboutCommand.Executed += (sender, e) => App.Current.AboutWindow.Show();
@@ -737,6 +749,17 @@ namespace OpenTabletDriver.UX
 
         protected override void OnClosing(CancelEventArgs e)
         {
+            // On macOS the native close tears the NSWindow down (fades alpha to 0
+            // and orders it out); Eto can't reliably reshow it, so the menu-bar
+            // "Show" would do nothing. Cancel the close and just hide the window —
+            // the app keeps running in the menu bar until the user picks Quit.
+            if (trayIcon != null && !isQuitting && SystemInterop.CurrentPlatform == PluginPlatform.MacOS)
+            {
+                e.Cancel = true;
+                this.Visible = false;
+                return;
+            }
+
             App.Driver.Disconnected -= HandleDaemonDisconnected;
             base.OnClosing(e);
         }

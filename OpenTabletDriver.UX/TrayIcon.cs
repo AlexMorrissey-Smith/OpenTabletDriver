@@ -86,7 +86,6 @@ namespace OpenTabletDriver.UX
             {
                 Text = "Close"
             };
-            close.Click += (sender, e) => window.Close();
 
             if (DesktopInterop.CurrentPlatform == PluginPlatform.MacOS)
             {
@@ -96,7 +95,15 @@ namespace OpenTabletDriver.UX
                 // Applications on macOS will keep running even after closing all their windows
                 // Offering a way to quit the app here is more idiomatic
                 close.Text = "Quit";
-                close.Click += (sender, e) => Application.Instance.Quit();
+                close.Click += (sender, e) =>
+                {
+                    MainForm.SignalQuitting();
+                    Application.Instance.Quit();
+                };
+            }
+            else
+            {
+                close.Click += (sender, e) => window.Close();
             }
 
             var items = new List<MenuItem>();
@@ -120,37 +127,25 @@ namespace OpenTabletDriver.UX
 
             items.Add(showWindow);
 
-            // macOS doesn't present a menu bar for agent apps
+            // ponytail: everything else is reachable from the window's menu bar
+            // once it's shown, so the tray only carries quick actions.
             if (DesktopInterop.CurrentPlatform == PluginPlatform.MacOS && window.Menu != null)
             {
                 items.Add(new SeparatorMenuItem());
 
-                var fileMenu = window.Menu.Items.GetSubmenu("&File") as ButtonMenuItem;
-                if (fileMenu != null)
-                {
-                    foreach (var item in fileMenu.Items)
-                    {
-                        if (item.Text == "Close" || item.Text == "Presets")
-                            continue;
-
-                        items.Add(CloneMenuItem(item));
-                    }
-                    items.Add(new SeparatorMenuItem());
-                }
-
-                var tabletsMenu = window.Menu.Items.GetSubmenu("Tablets");
+                var tabletsMenu = window.Menu.Items.GetSubmenu("Tablets") as ButtonMenuItem;
                 if (tabletsMenu != null)
-                    items.Add(CloneMenuItem(tabletsMenu));
-
-                var pluginsMenu = window.Menu.Items.GetSubmenu("Plugins");
-                if (pluginsMenu != null)
-                    items.Add(CloneMenuItem(pluginsMenu));
-
-                var helpMenu = window.Menu.Items.GetSubmenu("&Help");
-                if (helpMenu != null)
-                    items.Add(CloneMenuItem(helpMenu));
-
-                items.Add(new SeparatorMenuItem());
+                {
+                    foreach (var item in tabletsMenu.Items)
+                    {
+                        if (item.Text == "Detect tablet")
+                        {
+                            items.Add(CloneMenuItem(item));
+                            items.Add(new SeparatorMenuItem());
+                            break;
+                        }
+                    }
+                }
             }
 
             items.Add(close);

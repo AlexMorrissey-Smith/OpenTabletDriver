@@ -19,6 +19,13 @@ internal class FormHandler : Eto.Mac.Forms.FormHandler
         Widget.GotFocus += UpdateActivationPolicy;
         ApplyWindowChrome();
         ObserveScreenChanges();
+
+        // By default Eto swallows the main form's Closing event and lets AppKit
+        // tear the NSWindow down (fade to alpha 0 + orderOut). A torn-down window
+        // can't be reshown, so the menu-bar "Show" stops working. Opting in here
+        // makes MainForm.OnClosing fire so it can cancel the close and just hide.
+        if (Application.Instance.Handler is Eto.Mac.Forms.ApplicationHandler appHandler)
+            appHandler.AllowClosingMainForm = true;
     }
 
     // Forward OS monitor-layout changes to the cross-platform display-layout watcher.
