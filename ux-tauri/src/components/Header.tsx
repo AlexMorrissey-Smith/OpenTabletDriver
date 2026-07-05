@@ -22,7 +22,7 @@ import { Plus, Minus, RefreshCw } from "lucide-react";
 
 const ALL = "__all__";
 
-export function Header() {
+export function Header({ children }: { children?: React.ReactNode }) {
   const settings = useStore((s) => s.settings);
   const profile = useStore(currentProfile);
   const selectedTablet = useStore((s) => s.selectedTablet);
@@ -141,6 +141,8 @@ export function Header() {
       >
         <Minus className="size-4" />
       </Button>
+
+      {children ? <div className="ml-auto flex items-center gap-1">{children}</div> : null}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>

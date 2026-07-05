@@ -127,4 +127,20 @@
   html {
     @apply font-sans;
     }
+
+  /* Native app feel: chrome text isn't selectable and double-click doesn't
+     highlight labels. Re-enable selection only where it's useful (form fields,
+     log/console output marked .selectable). */
+  :root {
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+  input,
+  textarea,
+  [contenteditable="true"],
+  .selectable {
+    user-select: text;
+    -webkit-user-select: text;
+  }
 }

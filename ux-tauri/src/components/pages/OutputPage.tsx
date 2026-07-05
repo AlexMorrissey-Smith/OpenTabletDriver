@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { daemon } from "@/lib/daemon";
+import { useCallback, useEffect, useState } from "react";
+import { daemon, events } from "@/lib/daemon";
 import { currentProfile, useStore } from "@/lib/store";
 import { findType, makeStore } from "@/lib/plugin";
 import type { AreaSettings, VirtualScreenInfo } from "@/lib/types";
@@ -30,10 +30,22 @@ export function OutputPage() {
   // Display geometry comes from the DAEMON's virtual screen (driver coordinate
   // space), not the webview's monitor list — only this matches how the driver
   // maps the tablet, and it carries each monitor's rect for multi-display layouts.
+  // Display config can change at runtime (plug/unplug, mirror, resolution), so
+  // refetch on daemon Resynchronize (fires on virtual-screen change) and on
+  // window focus — GetVirtualScreen re-reads the live screen each call.
   const [vscreen, setVscreen] = useState<VirtualScreenInfo | null>(null);
-  useEffect(() => {
+  const refresh = useCallback(() => {
     daemon.getVirtualScreen().then(setVscreen).catch(() => {});
   }, []);
+  useEffect(() => {
+    refresh();
+    const un = events.onResynchronize(refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      un.then((f) => f());
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refresh]);
 
   const displayFull = { w: vscreen?.Width || 1920, h: vscreen?.Height || 1080 };
   // Normalize monitor rects into the area's [0..Width]×[0..Height] space (matches
@@ -114,6 +126,7 @@ export function OutputPage() {
                 fullHeight={displayFull.h}
                 bounds={displayBounds}
                 unit="px"
+                lockAspect={!!abs.LockAspectRatio}
                 onChange={editDisplay}
               />
             ) : null}
@@ -127,6 +140,7 @@ export function OutputPage() {
                   fullWidth={tabletFull.w}
                   fullHeight={tabletFull.h}
                   unit="mm"
+                  lockAspect={!!abs.LockAspectRatio}
                   onChange={editTablet}
                 />
               ) : null}

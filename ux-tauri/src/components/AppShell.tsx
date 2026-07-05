@@ -31,15 +31,10 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      {/* Title bar */}
-      <div className="flex items-center gap-3 border-b px-4 py-2">
-        <div className="ml-auto flex items-center gap-1">
-          <ThemeToggle />
-          <AppMenu />
-        </div>
-      </div>
-
-      <Header />
+      <Header>
+        <ThemeToggle />
+        <AppMenu />
+      </Header>
 
       <div className="flex min-h-0 flex-1">
         <Sidebar />

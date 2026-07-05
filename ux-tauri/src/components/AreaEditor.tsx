@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { AreaSettings } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +19,9 @@ interface Props {
   /** Optional sub-rectangles to draw inside the frame (e.g. individual monitors),
    *  in the same coordinate space as the area. */
   bounds?: { x: number; y: number; w: number; h: number; label?: string }[];
+  /** Force aspect-lock during resize (the "Lock aspect ratio" setting); Shift does
+   *  the same on the fly. */
+  lockAspect?: boolean;
   onChange: (fn: (a: AreaSettings) => void) => void;
 }
 
@@ -43,14 +46,18 @@ function clampArea(a: AreaSettings, fw: number, fh: number) {
   a.Y = clamp(a.Y, Math.min(hh, fh / 2), Math.max(fh - hh, fh / 2));
 }
 
-/** Visual area editor. X/Y are the area CENTER (matches the daemon's model, where
- *  a default display area is centered on the desktop). Drag body to move, corners
- *  to resize (symmetric about center). Rotation via the numeric field.
+/** Visual area editor. X/Y are the area CENTER (matches the daemon's model). Drag
+ *  body to move, corners to resize. Resize modifiers mirror Photoshop:
+ *  default anchors the opposite corner, Option/Alt resizes about the center,
+ *  Shift (or the Lock-aspect setting) keeps the aspect ratio. Right-click resets
+ *  the area to fill the frame.
  *  ponytail: move/resize computed in unrotated axes — slight skew while rotated;
- *  numeric fields give exact control. Upgrade to rotated-frame math if users need it. */
-export function AreaEditor({ area, fullWidth, fullHeight, unit, bounds, onChange }: Props) {
+ *  the precise-values panel gives exact control. Upgrade to rotated-frame math if
+ *  users need it. */
+export function AreaEditor({ area, fullWidth, fullHeight, unit, bounds, lockAspect, onChange }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const handle = Math.max(fullWidth, fullHeight) * 0.02;
 
   // Every mutation is clamped back inside the frame.
@@ -88,18 +95,46 @@ export function AreaEditor({ area, fullWidth, fullHeight, unit, bounds, onChange
       if (mode === "move") {
         a.X = o.X + dx;
         a.Y = o.Y + dy;
-      } else {
-        const sx = mode.includes("e") ? 1 : -1;
-        const sy = mode.includes("s") ? 1 : -1;
-        a.Width = Math.max(1, o.Width + 2 * dx * sx);
-        a.Height = Math.max(1, o.Height + 2 * dy * sy);
+        return;
       }
+      const sx = mode.includes("e") ? 1 : -1; // which x-edge the corner drives
+      const sy = mode.includes("s") ? 1 : -1;
+      const fromCenter = e.altKey; // Option: symmetric about center
+      const keepAspect = e.shiftKey || !!lockAspect;
+
+      // Default: opposite corner fixed → one edge moves by the drag. Option: both
+      // opposite edges move → grows about the center (×2).
+      let w = Math.max(1, o.Width + (fromCenter ? 2 : 1) * dx * sx);
+      let h = Math.max(1, o.Height + (fromCenter ? 2 : 1) * dy * sy);
+      if (keepAspect) {
+        const aspect = o.Width / o.Height;
+        // Follow whichever axis the cursor pushed harder, scale the other to match.
+        if (Math.abs(w / o.Width - 1) >= Math.abs(h / o.Height - 1)) h = w / aspect;
+        else w = h * aspect;
+      }
+      a.Width = w;
+      a.Height = h;
+      // Anchor: center stays put with Option; otherwise the fixed corner does, so
+      // the center shifts by half the size change in the drag direction.
+      a.X = fromCenter ? o.X : o.X + (sx * (w - o.Width)) / 2;
+      a.Y = fromCenter ? o.Y : o.Y + (sy * (h - o.Height)) / 2;
     });
   }
 
   function end(e: React.PointerEvent) {
     svgRef.current?.releasePointerCapture(e.pointerId);
     drag.current = null;
+  }
+
+  function resetToFull() {
+    edit((a) => {
+      a.X = fullWidth / 2;
+      a.Y = fullHeight / 2;
+      a.Width = fullWidth;
+      a.Height = fullHeight;
+      a.Rotation = 0;
+    });
+    setMenu(null);
   }
 
   const x = area.X - area.Width / 2;
@@ -113,7 +148,14 @@ export function AreaEditor({ area, fullWidth, fullHeight, unit, bounds, onChange
 
   return (
     <div className="space-y-3">
-      <div className="rounded-md border bg-muted/30 p-2">
+      <div
+        className="relative rounded-md border bg-muted/30 p-2"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          setMenu({ x: e.clientX - r.left, y: e.clientY - r.top });
+        }}
+      >
         <svg
           ref={svgRef}
           viewBox={`0 0 ${fullWidth} ${fullHeight}`}
@@ -182,15 +224,38 @@ export function AreaEditor({ area, fullWidth, fullHeight, unit, bounds, onChange
             ))}
           </g>
         </svg>
+
+        {menu ? (
+          <>
+            {/* click-away catcher */}
+            <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+            <div
+              className="absolute z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+              style={{ left: menu.x, top: menu.y }}
+            >
+              <button
+                className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                onClick={resetToFull}
+              >
+                Reset to full area
+              </button>
+            </div>
+          </>
+        ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <NumField label={`W (${unit})`} value={area.Width} onChange={(v) => edit((a) => void (a.Width = v))} />
-        <NumField label={`H (${unit})`} value={area.Height} onChange={(v) => edit((a) => void (a.Height = v))} />
-        <NumField label={`X (${unit})`} value={area.X} onChange={(v) => edit((a) => void (a.X = v))} />
-        <NumField label={`Y (${unit})`} value={area.Y} onChange={(v) => edit((a) => void (a.Y = v))} />
-        <NumField label="Rotation °" value={area.Rotation} onChange={(v) => edit((a) => void (a.Rotation = v))} />
-      </div>
+      <details className="group">
+        <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+          Precise values
+        </summary>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <NumField label={`W (${unit})`} value={area.Width} onChange={(v) => edit((a) => void (a.Width = v))} />
+          <NumField label={`H (${unit})`} value={area.Height} onChange={(v) => edit((a) => void (a.Height = v))} />
+          <NumField label={`X (${unit})`} value={area.X} onChange={(v) => edit((a) => void (a.X = v))} />
+          <NumField label={`Y (${unit})`} value={area.Y} onChange={(v) => edit((a) => void (a.Y = v))} />
+          <NumField label="Rotation °" value={area.Rotation} onChange={(v) => edit((a) => void (a.Rotation = v))} />
+        </div>
+      </details>
     </div>
   );
 }

@@ -62,7 +62,7 @@ export function ConsolePage() {
         <span className="text-xs text-muted-foreground ml-auto">{filtered.length} messages</span>
       </div>
 
-      <div className="flex-1 overflow-auto rounded-md border bg-muted/30 font-mono text-xs">
+      <div className="selectable flex-1 overflow-auto rounded-md border bg-muted/30 font-mono text-xs">
         <table className="w-full border-collapse">
           <tbody>
             {filtered.map((m, i) => (
