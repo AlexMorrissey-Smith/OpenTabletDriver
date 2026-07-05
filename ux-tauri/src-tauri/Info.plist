@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged into the generated Info.plist by Tauri (macOS). Required so
+	     CoreBluetooth (the WH851 BLE bridge) is allowed instead of silently
+	     denied. Carried over from OpenTabletDriver.UX.MacOS/Info.plist. -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>OpenTabletDriver uses Bluetooth to detect and read supported wireless tablets.</string>
+</dict>
+</plist>

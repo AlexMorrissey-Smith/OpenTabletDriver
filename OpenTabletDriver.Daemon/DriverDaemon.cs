@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -19,9 +20,11 @@ using OpenTabletDriver.Desktop.RPC;
 using OpenTabletDriver.Desktop.Updater;
 using OpenTabletDriver.Interop;
 using OpenTabletDriver.Plugin;
+using OpenTabletDriver.Plugin.Attributes;
 using OpenTabletDriver.Plugin.Devices;
 using OpenTabletDriver.Plugin.Logging;
 using OpenTabletDriver.Plugin.Output;
+using OpenTabletDriver.Plugin.Platform.Display;
 using OpenTabletDriver.Plugin.Platform.Pointer;
 using OpenTabletDriver.Plugin.Tablet;
 using OpenTabletDriver.SystemDrivers;
@@ -192,6 +195,157 @@ namespace OpenTabletDriver.Daemon
         public Task<bool> DownloadPlugin(PluginMetadata metadata)
         {
             return AppInfo.PluginManager.DownloadPlugin(metadata);
+        }
+
+        // ---- Additive metadata for the Tauri frontend (webviews can't reflect) ----
+
+        public Task<PluginTypeCatalog> GetPluginTypes()
+        {
+            var catalog = new PluginTypeCatalog
+            {
+                Bindings = DescribeTypes<IBinding>(),
+                OutputModes = DescribeTypes<IOutputMode>(),
+                Filters = DescribeTypes<IPositionedPipelineElement<IDeviceReport>>(),
+                Tools = DescribeTypes<ITool>()
+            };
+            return Task.FromResult(catalog);
+        }
+
+        public Task<VirtualScreenInfo> GetVirtualScreen()
+        {
+            OpenTabletDriver.Desktop.Interop.DesktopInterop.RefreshVirtualScreen();
+            var vs = OpenTabletDriver.Desktop.Interop.DesktopInterop.VirtualScreen
+                ?? throw new InvalidOperationException("Could not get VirtualScreen");
+
+            var info = new VirtualScreenInfo
+            {
+                X = vs.Position.X,
+                Y = vs.Position.Y,
+                Width = vs.Width,
+                Height = vs.Height,
+                // Skip the IVirtualScreen wrapper; it duplicates the whole desktop
+                // normalized to 0,0 and would draw as a background over the monitors.
+                Displays = vs.Displays
+                    .Where(d => d is not IVirtualScreen)
+                    .Select(d => new DisplayInfo
+                    {
+                        Index = d.Index,
+                        X = d.Position.X,
+                        Y = d.Position.Y,
+                        Width = d.Width,
+                        Height = d.Height
+                    })
+                    .ToList()
+            };
+            return Task.FromResult(info);
+        }
+
+        private static List<SerializedPluginType> DescribeTypes<T>()
+        {
+            return AppInfo.PluginManager.GetChildTypes<T>()
+                .OrderBy(t => AppInfo.PluginManager.GetFriendlyName(t.FullName!) ?? t.Name)
+                .Select(DescribeType)
+                .ToList();
+        }
+
+        private static SerializedPluginType DescribeType(TypeInfo type)
+        {
+            var settings = new List<SerializedPluginSetting>();
+            foreach (var prop in type.GetProperties())
+            {
+                if (prop.GetCustomAttribute<PropertyAttribute>() is not PropertyAttribute attr)
+                    continue;
+
+                var underlying = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+                var setting = new SerializedPluginSetting
+                {
+                    Property = prop.Name,
+                    DisplayName = attr.DisplayName,
+                    ToolTip = prop.GetCustomAttribute<ToolTipAttribute>()?.ToolTip,
+                    Unit = prop.GetCustomAttribute<UnitAttribute>()?.Unit
+                };
+
+                if (underlying.IsEnum)
+                {
+                    setting.Kind = "enum";
+                    setting.EnumValues = Enum.GetNames(underlying);
+                }
+                else if (underlying == typeof(bool))
+                    setting.Kind = "bool";
+                else if (underlying == typeof(string))
+                    setting.Kind = "string";
+                else if (underlying == typeof(decimal) || (underlying.IsPrimitive && underlying != typeof(char)))
+                    setting.Kind = "number";
+                else
+                    setting.Kind = "string";
+
+                if (attr is SliderPropertyAttribute slider)
+                {
+                    setting.Min = slider.Min;
+                    setting.Max = slider.Max;
+                    setting.Default = slider.DefaultValue;
+                }
+
+                if (prop.GetCustomAttribute<DefaultPropertyValueAttribute>() is DefaultPropertyValueAttribute def)
+                    setting.Default = def.Value;
+
+                settings.Add(setting);
+            }
+
+            return new SerializedPluginType
+            {
+                Path = type.FullName!,
+                Name = AppInfo.PluginManager.GetFriendlyName(type.FullName!) ?? type.Name,
+                Settings = settings
+            };
+        }
+
+        public Task<IEnumerable<PluginMetadata>> GetLoadedPlugins()
+        {
+            var loaded = new List<PluginMetadata>();
+            foreach (var ctx in AppInfo.PluginManager.GetLoadedPlugins())
+            {
+                try { loaded.Add(ctx.GetMetadata()); }
+                catch (Exception ex) { Log.Exception(ex); }
+            }
+            return Task.FromResult<IEnumerable<PluginMetadata>>(loaded);
+        }
+
+        public async Task<IEnumerable<PluginMetadata>> GetPluginMetadataRepository()
+        {
+            var collection = await PluginMetadataCollection.DownloadAsync();
+            return collection.ToList();
+        }
+
+        // ---- Presets ----
+
+        private PresetManager? _presetManager;
+        private PresetManager PresetMgr => _presetManager ??= new PresetManager();
+
+        public Task<IEnumerable<string>> GetPresets()
+        {
+            PresetMgr.Refresh();
+            return Task.FromResult(PresetMgr.GetPresets().Select(p => p.Name));
+        }
+
+        public Task SavePreset(string name, Settings settings)
+        {
+            var safeName = string.Concat(name.Split(Path.GetInvalidFileNameChars()));
+            var file = new FileInfo(Path.Join(PresetMgr.PresetDirectory.FullName, safeName + ".json"));
+            settings.Serialize(file);
+            PresetMgr.Refresh();
+            Log.Write("Settings", $"Saved preset '{safeName}'");
+            return Task.CompletedTask;
+        }
+
+        public async Task ApplyPreset(string name)
+        {
+            PresetMgr.Refresh();
+            var preset = PresetMgr.FindPreset(name);
+            if (preset != null)
+                await SetSettings(preset.Settings);
+            else
+                Log.Write("Settings", $"Preset '{name}' not found", LogLevel.Warning);
         }
 
         public Task<IEnumerable<TabletReference>> GetTablets()

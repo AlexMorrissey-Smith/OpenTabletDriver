@@ -25,6 +25,17 @@ namespace OpenTabletDriver.Desktop.Contracts
         Task<bool> UninstallPlugin(string friendlyName);
         Task<bool> DownloadPlugin(PluginMetadata metadata);
 
+        // Additive read-only metadata the webview frontend can't get via reflection.
+        Task<PluginTypeCatalog> GetPluginTypes();
+        Task<VirtualScreenInfo> GetVirtualScreen();
+        Task<IEnumerable<PluginMetadata>> GetLoadedPlugins();
+        Task<IEnumerable<PluginMetadata>> GetPluginMetadataRepository();
+
+        // Presets (were handled in-process by the old GUI's PresetManager).
+        Task<IEnumerable<string>> GetPresets();
+        Task SavePreset(string name, Settings settings);
+        Task ApplyPreset(string name);
+
         Task<IEnumerable<SerializedDeviceEndpoint>> GetDevices();
 
         Task<IEnumerable<TabletReference>> GetTablets();

@@ -1,13 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using OpenTabletDriver.Desktop.Contracts;
 using OpenTabletDriver.Desktop.Interop;
 using OpenTabletDriver.Desktop.Profiles;
+using OpenTabletDriver.Interop;
 using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Attributes;
 using OpenTabletDriver.Plugin.DependencyInjection;
+using OpenTabletDriver.Plugin.Logging;
+using OpenTabletDriver.Plugin.Platform.Display;
 using OpenTabletDriver.Plugin.Tablet;
 
 namespace OpenTabletDriver.Desktop.Binding
@@ -59,6 +65,45 @@ namespace OpenTabletDriver.Desktop.Binding
 
             Daemon.SetSettings(settings);
             Daemon.ForceResynchronize();
+
+            // "all displays" is the last step when included; otherwise next maps to a monitor.
+            var selection = (IncludeAllDisplays && displays.Count > 1 && next == targets.Count - 1)
+                ? "all"
+                : next.ToString(CultureInfo.InvariantCulture);
+            ShowOverlay(displays, selection);
+        }
+
+        private const string OverlayHelper = "OpenTabletDriver.DisplaySwapOverlay";
+
+        private static void ShowOverlay(IReadOnlyList<IDisplay> displays, string selection)
+        {
+            if (SystemInterop.CurrentPlatform != PluginPlatform.MacOS)
+                return;
+
+            var helperPath = Path.Combine(AppContext.BaseDirectory, OverlayHelper);
+            if (!File.Exists(helperPath))
+                return;
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = helperPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                psi.ArgumentList.Add(selection);
+                foreach (var d in displays)
+                {
+                    psi.ArgumentList.Add(string.Format(CultureInfo.InvariantCulture,
+                        "{0},{1},{2},{3}", d.Position.X, d.Position.Y, d.Width, d.Height));
+                }
+                Process.Start(psi)?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Log.Write("Display Swap", $"Unable to show display swap overlay: {ex.Message}", LogLevel.Debug);
+            }
         }
 
         private static int ClosestTarget(IReadOnlyList<Area> targets, AreaSettings current)
