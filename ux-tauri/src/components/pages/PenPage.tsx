@@ -1,6 +1,7 @@
 import { currentBindings, useStore } from "@/lib/store";
 import { BindingButton } from "../BindingButton";
 import { BindingArray } from "../BindingArray";
+import { PressureCurve } from "../PressureCurve";
 import { Section } from "../Section";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -57,6 +58,13 @@ export function PenPage() {
             <span className="text-sm text-muted-foreground">% pressure</span>
           </div>
         </div>
+      </Section>
+
+      <Section
+        title="Pressure curve"
+        description="Shape how physical tip pressure maps to output pressure."
+      >
+        <PressureCurve />
       </Section>
 
       <Section title="Pen buttons">
