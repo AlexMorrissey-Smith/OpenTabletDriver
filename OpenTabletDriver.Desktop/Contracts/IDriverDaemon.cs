@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using OpenTabletDriver.Desktop.Binding;
 using OpenTabletDriver.Desktop.Diagnostics;
 using OpenTabletDriver.Desktop.Reflection.Metadata;
 using OpenTabletDriver.Desktop.RPC;
@@ -17,6 +18,7 @@ namespace OpenTabletDriver.Desktop.Contracts
         event EventHandler<DebugReportData>? DeviceReport;
         event EventHandler<IEnumerable<TabletReference>>? TabletsChanged;
         event EventHandler? Resynchronize;
+        event EventHandler<OverlayRequest>? Overlay;
 
         Task WriteMessage(LogMessage message);
 

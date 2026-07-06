@@ -1,4 +1,5 @@
 mod daemon;
+mod overlay;
 mod tray;
 mod watchdog;
 

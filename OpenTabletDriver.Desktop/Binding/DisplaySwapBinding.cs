@@ -78,7 +78,21 @@ namespace OpenTabletDriver.Desktop.Binding
         private static void ShowOverlay(IReadOnlyList<IDisplay> displays, string selection)
         {
             if (SystemInterop.CurrentPlatform != PluginPlatform.MacOS)
+            {
+                // No native helper on this platform; the GUI draws the HUD from this event.
+                OverlayHub.Publish("display-swap", new
+                {
+                    Selection = selection,
+                    Displays = displays.Select(d => new
+                    {
+                        X = d.Position.X,
+                        Y = d.Position.Y,
+                        W = d.Width,
+                        H = d.Height
+                    }).ToArray()
+                });
                 return;
+            }
 
             var helperPath = Path.Combine(AppContext.BaseDirectory, OverlayHelper);
             if (!File.Exists(helperPath))

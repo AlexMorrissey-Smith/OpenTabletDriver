@@ -212,6 +212,15 @@ async fn dispatch(msg: Value, inner: &Arc<Inner>, app: &AppHandle) {
     // Notification (server event): method + params, no id.
     if let Some(method) = msg.get("method").and_then(Value::as_str) {
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
+
+        // HUD overlays are drawn by us, not the page: events must work even
+        // when the main window is hidden in the tray.
+        if method == "Overlay" {
+            if let Some(request) = params.get(0) {
+                crate::overlay::show(app, request);
+            }
+        }
+
         let _ = app.emit(EVENT_NOTIFY, json!({ "method": method, "params": params }));
     }
 }

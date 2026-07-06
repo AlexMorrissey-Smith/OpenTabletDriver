@@ -288,7 +288,11 @@ namespace OpenTabletDriver.Desktop.Binding
         public static void Show(WheelMode mode)
         {
             if (SystemInterop.CurrentPlatform != PluginPlatform.MacOS)
+            {
+                // No native helper on this platform; the GUI draws the HUD from this event.
+                OverlayHub.Publish("wheel-mode", WheelModeSwitchBinding.Format(mode));
                 return;
+            }
 
             var helperPath = Path.Combine(AppContext.BaseDirectory, HelperName);
             if (!File.Exists(helperPath))

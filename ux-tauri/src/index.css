@@ -124,6 +124,12 @@
   body {
     @apply bg-background text-foreground;
     }
+  /* HUD overlay window (see OverlayHud.tsx): the webview itself must stay
+     see-through, only the HUD chrome paints pixels. */
+  html.overlay-mode,
+  html.overlay-mode body {
+    background: transparent;
+  }
   html {
     @apply font-sans;
     }

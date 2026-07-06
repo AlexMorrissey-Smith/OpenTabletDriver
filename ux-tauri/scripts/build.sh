@@ -57,7 +57,16 @@ if [[ "$RID" == osx-* && -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   [ -n "$ID" ] && export APPLE_SIGNING_IDENTITY="$ID" && echo "==> Signing as: $ID"
 fi
 
-pnpm tauri build --bundles app
+if [[ "$RID" == win-* ]]; then
+  # Cross-compile from macOS/Linux: cargo-xwin fetches the MSVC CRT + Windows
+  # SDK; NSIS is the only installer bundler that works cross-platform.
+  # makensis crashes with std::bad_alloc on Unicode installers unless the
+  # locale is UTF-8 (https://sourceforge.net/p/nsis/bugs/1165/).
+  export LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+  pnpm tauri build --runner cargo-xwin --target "$TRIPLE" --bundles nsis
+else
+  pnpm tauri build --bundles app
+fi
 
 # Tauri signs the app; re-sign the .NET daemon with the JIT entitlements it needs,
 # then re-seal the bundle (inner first, bundle last — same order as eng/bash/macos).

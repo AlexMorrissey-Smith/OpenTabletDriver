@@ -48,12 +48,16 @@ namespace OpenTabletDriver.Daemon
 
             InitializePlatform();
             Driver.TabletsChanged += (sender, e) => TabletsChanged?.Invoke(sender, e);
+            OverlayHub.OverlayRequested += (sender, e) => Overlay?.Invoke(this, e);
             Driver.CompositeDeviceHub.DevicesChanged += async (sender, args) =>
             {
-                if (!args.Additions.Any()) return;
+                // Removals matter too: a BLE tablet powering off only raises a
+                // removal, and its endpoint stream blocks forever instead of erroring.
+                if (!args.Additions.Any() && !args.Removals.Any(x => Driver.KnownVendorIDs.Contains(x.VendorID)))
+                    return;
 
-                // only re-initialize pipeline if a relevant device is plugged in
-                if (args.Additions.Any(x => Driver.KnownVendorIDs.Contains(x.VendorID)))
+                // only re-initialize pipeline if a relevant device is plugged in or removed
+                if (args.Additions.Concat(args.Removals).Any(x => Driver.KnownVendorIDs.Contains(x.VendorID)))
                 {
                     await DetectTablets();
                     await SetSettings(Settings);
@@ -141,6 +145,7 @@ namespace OpenTabletDriver.Daemon
         public event EventHandler<DebugReportData>? DeviceReport;
         public event EventHandler<IEnumerable<TabletReference>>? TabletsChanged;
         public event EventHandler? Resynchronize;
+        public event EventHandler<OverlayRequest>? Overlay;
 
         public Driver Driver { get; }
         private Settings? Settings { set; get; }
