@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "OpenTabletDriver",
-        "width": 1180,
-        "height": 840,
-        "minWidth": 860,
-        "minHeight": 600
+        "width": 1360,
+        "height": 960,
+        "minWidth": 900,
+        "minHeight": 640
       }
     ],
     "security": {

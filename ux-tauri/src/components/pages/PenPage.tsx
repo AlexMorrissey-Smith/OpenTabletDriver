@@ -24,11 +24,14 @@ export function PenPage() {
             <Input
               type="number"
               className="w-32"
+              min={0}
+              max={100}
               value={bindings.TipActivationThreshold}
               onChange={(e) =>
                 updateBindings((b) => void (b.TipActivationThreshold = Number(e.target.value)))
               }
             />
+            <span className="text-sm text-muted-foreground">% pressure</span>
           </div>
         </div>
       </Section>
@@ -44,11 +47,14 @@ export function PenPage() {
             <Input
               type="number"
               className="w-32"
+              min={0}
+              max={100}
               value={bindings.EraserActivationThreshold}
               onChange={(e) =>
                 updateBindings((b) => void (b.EraserActivationThreshold = Number(e.target.value)))
               }
             />
+            <span className="text-sm text-muted-foreground">% pressure</span>
           </div>
         </div>
       </Section>

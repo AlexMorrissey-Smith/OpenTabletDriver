@@ -3,11 +3,10 @@ import { daemon, events } from "@/lib/daemon";
 import { currentProfile, useStore } from "@/lib/store";
 import { findType, makeStore } from "@/lib/plugin";
 import type { AreaSettings, VirtualScreenInfo } from "@/lib/types";
-import { AreaEditor } from "../AreaEditor";
+import { MappingEditor } from "../MappingEditor";
 import { Section } from "../Section";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -66,7 +65,9 @@ export function OutputPage() {
   const absolute = isAbsolutePath(path);
 
   // Physical tablet size (mm) from specs, for the tablet-area background.
+  // `tablets` is the live-detected list, so its presence = actually connected.
   const tablet = tablets.find((t) => t.Properties?.Name === selectedTablet);
+  const tabletConnected = !!tablet;
   const digitizer = (tablet?.Properties as any)?.Specifications?.Digitizer;
   const tabletFull = {
     w: Number(digitizer?.Width) || profile.AbsoluteModeSettings?.Tablet?.Width || 100,
@@ -117,53 +118,20 @@ export function OutputPage() {
       </Section>
 
       {absolute && abs ? (
-        <>
-          <Section title="Display area" description="The region of your screen the tablet maps to.">
-            {abs.Display ? (
-              <AreaEditor
-                area={abs.Display}
-                fullWidth={displayFull.w}
-                fullHeight={displayFull.h}
-                bounds={displayBounds}
-                unit="px"
-                lockAspect={!!abs.LockAspectRatio}
-                onChange={editDisplay}
-              />
-            ) : null}
-          </Section>
-
-          <Section title="Tablet area" description="The active region of the tablet surface.">
-            <div className="space-y-4">
-              {abs.Tablet ? (
-                <AreaEditor
-                  area={abs.Tablet}
-                  fullWidth={tabletFull.w}
-                  fullHeight={tabletFull.h}
-                  unit="mm"
-                  lockAspect={!!abs.LockAspectRatio}
-                  onChange={editTablet}
-                />
-              ) : null}
-              <div className="space-y-3">
-                <Toggle
-                  label="Lock aspect ratio"
-                  checked={!!abs.LockAspectRatio}
-                  onChange={(v) => updateProfile((p) => void (p.AbsoluteModeSettings!.LockAspectRatio = v))}
-                />
-                <Toggle
-                  label="Area clipping"
-                  checked={!!abs.EnableClipping}
-                  onChange={(v) => updateProfile((p) => void (p.AbsoluteModeSettings!.EnableClipping = v))}
-                />
-                <Toggle
-                  label="Ignore reports outside area"
-                  checked={!!abs.EnableAreaLimiting}
-                  onChange={(v) => updateProfile((p) => void (p.AbsoluteModeSettings!.EnableAreaLimiting = v))}
-                />
-              </div>
-            </div>
-          </Section>
-        </>
+        <Section
+          title="Area mapping"
+          description="The tablet workspace (bottom) maps onto the display region (top)."
+        >
+          {abs.Display && abs.Tablet ? (
+            <MappingEditor
+              display={{ full: displayFull, bounds: displayBounds, area: abs.Display, onChange: editDisplay, unit: "px" }}
+              tablet={{ full: tabletFull, area: abs.Tablet, onChange: editTablet, unit: "mm" }}
+              tabletConnected={tabletConnected}
+              lockAspect={!!abs.LockAspectRatio}
+              onLockAspect={(v) => updateProfile((p) => void (p.AbsoluteModeSettings!.LockAspectRatio = v))}
+            />
+          ) : null}
+        </Section>
       ) : rel ? (
         <Section title="Relative mode">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -194,15 +162,6 @@ export function OutputPage() {
           </div>
         </Section>
       ) : null}
-    </div>
-  );
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="flex items-center justify-between">
-      <Label className="text-sm">{label}</Label>
-      <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   );
 }
