@@ -30,6 +30,7 @@ namespace OpenTabletDriver.Desktop.Contracts
         // Additive read-only metadata the webview frontend can't get via reflection.
         Task<PluginTypeCatalog> GetPluginTypes();
         Task<VirtualScreenInfo> GetVirtualScreen();
+        Task<VMultiDeviceStatus> GetVMultiDeviceStatus();
         Task<IEnumerable<PluginMetadata>> GetLoadedPlugins();
         Task<IEnumerable<PluginMetadata>> GetPluginMetadataRepository();
 

@@ -65,6 +65,15 @@ export interface VirtualScreenInfo {
   Displays: DisplayInfo[];
 }
 
+/** Install state of the external VMulti driver (Windows Ink output mode). */
+export interface VMultiDeviceStatus {
+  Kind: number; // 0 Ready, 1 Missing, 2 Incomplete, 3 OpenFailed
+  IsAvailable: boolean;
+  IsExtendedDigitizerAvailable: boolean;
+  Message: string;
+  DownloadUrl: string;
+}
+
 export interface AbsoluteModeSettings {
   Display?: AreaSettings;
   Tablet?: AreaSettings;

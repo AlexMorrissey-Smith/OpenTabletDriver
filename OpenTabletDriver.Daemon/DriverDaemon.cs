@@ -216,6 +216,20 @@ namespace OpenTabletDriver.Daemon
             return Task.FromResult(catalog);
         }
 
+        public Task<VMultiDeviceStatus> GetVMultiDeviceStatus()
+        {
+            if (SystemInterop.CurrentPlatform != PluginPlatform.Windows)
+            {
+                return Task.FromResult(new VMultiDeviceStatus
+                {
+                    Kind = VMultiDeviceStatusKind.Missing,
+                    Message = "Windows Ink output is only available on Windows."
+                });
+            }
+
+            return Task.FromResult(Desktop.Output.WindowsInk.VMultiDeviceDetector.GetStatus());
+        }
+
         public Task<VirtualScreenInfo> GetVirtualScreen()
         {
             OpenTabletDriver.Desktop.Interop.DesktopInterop.RefreshVirtualScreen();

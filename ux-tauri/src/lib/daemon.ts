@@ -12,6 +12,7 @@ import type {
   PluginMetadata,
   PluginTypeCatalog,
   VirtualScreenInfo,
+  VMultiDeviceStatus,
   SerializedDeviceEndpoint,
   SerializedUpdateInfo,
   Settings,
@@ -87,6 +88,7 @@ export const daemon = {
   // ---- additive methods (to be added daemon-side, see plan) ----
   getPluginTypes: () => rpc<PluginTypeCatalog>("GetPluginTypes"),
   getVirtualScreen: () => rpc<VirtualScreenInfo>("GetVirtualScreen"),
+  getVMultiDeviceStatus: () => rpc<VMultiDeviceStatus>("GetVMultiDeviceStatus"),
   getPresets: () => rpc<string[]>("GetPresets"),
   savePreset: (name: string, settings: Settings) => rpc<void>("SavePreset", name, settings),
   applyPreset: (name: string) => rpc<void>("ApplyPreset", name),

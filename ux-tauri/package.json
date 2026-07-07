@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:mac": "scripts/build.sh osx-arm64",
+    "build:mac:x64": "scripts/build.sh osx-x64",
+    "build:windows": "scripts/build.sh win-x64",
+    "build:all": "pnpm build:mac && pnpm build:windows",
     "preview": "vite preview",
     "tauri": "tauri"
   },

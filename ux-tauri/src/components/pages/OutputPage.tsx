@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { daemon, events } from "@/lib/daemon";
 import { currentProfile, useStore } from "@/lib/store";
 import { findType, makeStore } from "@/lib/plugin";
-import type { AreaSettings, VirtualScreenInfo } from "@/lib/types";
+import type { AreaSettings, VirtualScreenInfo, VMultiDeviceStatus } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
 import { MappingEditor } from "../MappingEditor";
 import { Section } from "../Section";
 import { Label } from "@/components/ui/label";
@@ -115,6 +118,7 @@ export function OutputPage() {
         ) : (
           <p className="text-sm text-muted-foreground">{path.split(".").pop()}</p>
         )}
+        {path.includes("WindowsInk") ? <VMultiStatusPanel /> : null}
       </Section>
 
       {absolute && abs ? (
@@ -162,6 +166,57 @@ export function OutputPage() {
           </div>
         </Section>
       ) : null}
+    </div>
+  );
+}
+
+/** Windows Ink output depends on the external VMulti VirtualHID driver —
+ *  surface its install state and the download link right where the mode is
+ *  chosen, since "no pressure" is otherwise silent. */
+function VMultiStatusPanel() {
+  const [status, setStatus] = useState<VMultiDeviceStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(() => {
+    setBusy(true);
+    daemon
+      .getVMultiDeviceStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null))
+      .finally(() => setBusy(false));
+  }, []);
+  useEffect(refresh, [refresh]);
+
+  if (!status) return null;
+  const ready = status.IsAvailable;
+
+  return (
+    <div className="mt-3 space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+      <div className="flex items-start gap-2">
+        {ready ? (
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+        ) : (
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-yellow-500" />
+        )}
+        <p className={ready ? "text-muted-foreground" : ""}>{status.Message}</p>
+      </div>
+      {!ready ? (
+        <p className="text-xs text-muted-foreground">
+          Also uninstall the vendor (GAOMON) driver if it's installed — two
+          drivers reading the same tablet causes inconsistent input.
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        {!ready && status.DownloadUrl ? (
+          <Button variant="outline" size="sm" onClick={() => openUrl(status.DownloadUrl)}>
+            Download VMulti
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="sm" onClick={refresh} disabled={busy}>
+          <RefreshCw className={busy ? "size-4 animate-spin" : "size-4"} />
+          Re-check
+        </Button>
+      </div>
     </div>
   );
 }
