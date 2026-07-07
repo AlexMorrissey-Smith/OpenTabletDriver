@@ -58,6 +58,21 @@ if [[ "$RID" == osx-* && -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
 fi
 
 if [[ "$RID" == win-* ]]; then
+  # Bundle the VMulti VirtualHID driver so Windows Ink pressure works without
+  # a separate download; the NSIS hook installs it during setup.
+  VMULTI_DIR="$HERE/src-tauri/vmulti"
+  if [[ ! -f "$VMULTI_DIR/vmulti.inf" ]]; then
+    echo "==> Downloading VMulti driver"
+    VMULTI_ZIP="$HERE/src-tauri/vmulti.zip"
+    curl -fsSL -o "$VMULTI_ZIP" \
+      "https://github.com/X9VoiD/vmulti-bin/releases/download/v1.0/VMulti.Driver.zip"
+    echo "cc34f74a6bee7f3d1fdc3c10aae27118a359f56a51de2f5965b7d0d3e353d3a1  $VMULTI_ZIP" | shasum -a 256 -c -
+    mkdir -p "$VMULTI_DIR"
+    unzip -o -q "$VMULTI_ZIP" -d "$VMULTI_DIR"
+    rm "$VMULTI_ZIP"
+  fi
+  export VMULTI_DIR
+
   # Cross-compile from macOS/Linux: cargo-xwin fetches the MSVC CRT + Windows
   # SDK; NSIS is the only installer bundler that works cross-platform.
   # makensis crashes with std::bad_alloc on Unicode installers unless the

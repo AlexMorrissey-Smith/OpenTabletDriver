@@ -82,7 +82,7 @@ namespace OpenTabletDriver.Desktop.Output.WindowsInk
                     VMultiDeviceStatusKind.Missing,
                     false,
                     false,
-                    "VMulti VirtualHID was not found. Download VMulti, extract it, run install_hiddriver.bat as administrator, then restart OpenTabletDriver."
+                    "VMulti VirtualHID was not found. Re-run the OpenTabletDriver installer (it sets up VMulti automatically), then restart. Manual install is available from the download link."
                 );
             }
 

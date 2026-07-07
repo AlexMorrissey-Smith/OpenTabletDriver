@@ -1,6 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "externalBin": ["binaries/OpenTabletDriver.Daemon"]
+    "externalBin": ["binaries/OpenTabletDriver.Daemon"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "./windows/vmulti-hooks.nsh"
+      }
+    }
   }
 }
