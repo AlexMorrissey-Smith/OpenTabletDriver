@@ -61,8 +61,11 @@ namespace OpenTabletDriver.Devices.MacOSHid
             if (manager == IntPtr.Zero)
                 yield break;
 
-            IOHID.IOHIDManagerSetDeviceMatching(manager, IntPtr.Zero);
-            IOHID.IOHIDManagerOpen(manager, IOHID.IOHIDOptionsTypeNone);
+            // Runs every second: match only the WH851 and don't open the manager. Null matching
+            // plus Open opened every HID device on the system (and hit tccd for each) per poll.
+            var matching = IOHID.CreateIntDictionary(("VendorID", VendorId), ("ProductID", BluetoothProductId));
+            IOHID.IOHIDManagerSetDeviceMatching(manager, matching);
+            IOHID.CFRelease(matching);
 
             var devices = IOHID.IOHIDManagerCopyDevices(manager);
             if (devices == IntPtr.Zero)
@@ -394,6 +397,12 @@ namespace OpenTabletDriver.Devices.MacOSHid
                 if (gcHandle.IsAllocated)
                     gcHandle.Free();
 
+                if (runLoop != IntPtr.Zero)
+                {
+                    IOHID.CFRelease(runLoop);
+                    runLoop = IntPtr.Zero;
+                }
+
                 ready.Dispose();
                 reports.Dispose();
 
@@ -416,7 +425,9 @@ namespace OpenTabletDriver.Devices.MacOSHid
             {
                 try
                 {
-                    runLoop = IOHID.CFRunLoopGetCurrent();
+                    // Retained: Dispose may call CFRunLoopStop after this thread has exited and
+                    // freed its run loop. A stale pointer faults in a loop and pins a CPU core.
+                    runLoop = IOHID.CFRetain(IOHID.CFRunLoopGetCurrent());
                     if (requiresListenAccess && !EnsureListenAccess())
                     {
                         openResult = -1;

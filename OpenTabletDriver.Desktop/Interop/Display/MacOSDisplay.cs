@@ -46,6 +46,10 @@ namespace OpenTabletDriver.Desktop.Interop.Display
         private Lazy<IEnumerable<IDisplay>> _displays = new Lazy<IEnumerable<IDisplay>>(() =>
         {
             var displayBounds = GetDisplayBounds().ToList();
+            // No active displays (lid closed / asleep): Min() would throw every watcher poll.
+            if (displayBounds.Count == 0)
+                return Enumerable.Empty<IDisplay>();
+
             var offsetX = displayBounds.Min(d => d.origin.x);
             var offsetY = displayBounds.Min(d => d.origin.y);
 
