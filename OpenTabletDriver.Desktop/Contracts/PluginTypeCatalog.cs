@@ -14,6 +14,8 @@ namespace OpenTabletDriver.Desktop.Contracts
         public string Kind { get; set; } = "string";
         public object? Default { get; set; }
         public string[]? EnumValues { get; set; }
+        /// <summary>Render string settings as a multiline editor (scripts).</summary>
+        public bool Multiline { get; set; }
         public float? Min { get; set; }
         public float? Max { get; set; }
         public string? ToolTip { get; set; }

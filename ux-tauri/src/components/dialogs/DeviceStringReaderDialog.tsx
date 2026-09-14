@@ -63,8 +63,8 @@ export function DeviceStringReaderDialog() {
           </Select>
 
           <div className="grid grid-cols-3 gap-2">
-            <Field label="Vendor ID" value={vid} onChange={setVid} />
-            <Field label="Product ID" value={pid} onChange={setPid} />
+            <HexField label="Vendor ID" value={vid} onChange={setVid} />
+            <HexField label="Product ID" value={pid} onChange={setPid} />
             <Field label="String index" value={index} onChange={setIndex} />
           </div>
 
@@ -79,6 +79,26 @@ export function DeviceStringReaderDialog() {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Hardware IDs are conventionally hex: shown and parsed as hex ("0x" optional). */
+function HexField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState<string | null>(null); // null = not editing
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Input
+        value={text ?? `0x${value.toString(16)}`}
+        onFocus={() => setText(`0x${value.toString(16)}`)}
+        onBlur={() => setText(null)}
+        onChange={(e) => {
+          setText(e.target.value);
+          const n = parseInt(e.target.value.trim().replace(/^0x/i, ""), 16);
+          if (Number.isFinite(n) && n >= 0) onChange(n);
+        }}
+      />
+    </div>
   );
 }
 

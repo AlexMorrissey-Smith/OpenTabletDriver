@@ -143,10 +143,6 @@ export function PressureCurve() {
             />
           </>
         ) : null}
-        {/* axes hint */}
-        <text x={PAD + W / 2} y={SIZE - 1} textAnchor="middle" className="fill-muted-foreground text-[9px] select-none">
-          pen pressure →
-        </text>
       </svg>
 
       <div className="space-y-4">

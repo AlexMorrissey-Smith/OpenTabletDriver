@@ -15,8 +15,10 @@ pub fn show(app: &AppHandle, request: &serde_json::Value) {
 
     // Recreate each time: the payload rides in the URL hash, and the window is
     // tiny/transient. ponytail: reuse-and-emit if flicker ever matters.
+    // destroy(), not close(): close() emits CloseRequested (interceptable) and
+    // frees the label too late for the rebuild below.
     if let Some(win) = app.get_webview_window(LABEL) {
-        let _ = win.close();
+        let _ = win.destroy();
     }
 
     let data = urlencoding_encode(&request.to_string());
@@ -26,8 +28,8 @@ pub fn show(app: &AppHandle, request: &serde_json::Value) {
         .primary_monitor()
         .ok()
         .flatten()
-        .map(|m| (m.position().clone(), m.size().clone(), m.scale_factor()));
-    let (pos, size, scale) = match monitor {
+        .map(|m| (m.position().clone(), m.size().clone()));
+    let (pos, size) = match monitor {
         Some(m) => m,
         None => return,
     };
@@ -37,12 +39,7 @@ pub fn show(app: &AppHandle, request: &serde_json::Value) {
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
-        .shadow(false)
-        .position(pos.x as f64 / scale, pos.y as f64 / scale)
-        .inner_size(
-            size.width as f64 / scale,
-            size.height as f64 / scale,
-        );
+        .shadow(false);
 
     // The daemon only emits Overlay events off-macOS (Swift helpers cover
     // macOS), and `transparent` needs the private-api feature there.
@@ -51,13 +48,17 @@ pub fn show(app: &AppHandle, request: &serde_json::Value) {
 
     match builder.build() {
         Ok(win) => {
+            // Physical coords: exact monitor bounds regardless of per-monitor
+            // DPI (logical division was off on mixed-scale Windows setups).
+            let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, pos.y));
+            let _ = win.set_size(tauri::PhysicalSize::new(size.width, size.height));
             let _ = win.set_ignore_cursor_events(true);
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 tokio_sleep(DISMISS_MS).await;
                 if GENERATION.load(Ordering::SeqCst) == gen {
                     if let Some(win) = app.get_webview_window(LABEL) {
-                        let _ = win.close();
+                        let _ = win.destroy();
                     }
                 }
             });

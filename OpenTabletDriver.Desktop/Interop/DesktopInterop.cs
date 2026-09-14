@@ -25,7 +25,8 @@ namespace OpenTabletDriver.Desktop.Interop
         }
 
         private static IUpdater? updater;
-        private static IVirtualScreen? virtualScreen;
+        // volatile: reset from the RPC thread while output threads read it.
+        private static volatile IVirtualScreen? virtualScreen;
         private static IAbsolutePointer? absolutePointer;
         private static IRelativePointer? relativePointer;
         private static IPressureHandler? virtualTablet;

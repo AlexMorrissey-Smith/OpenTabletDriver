@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { daemon, events } from "@/lib/daemon";
 import { currentProfile, useStore } from "@/lib/store";
@@ -71,7 +71,10 @@ export function OutputPage() {
   // `tablets` is the live-detected list, so its presence = actually connected.
   const tablet = tablets.find((t) => t.Properties?.Name === selectedTablet);
   const tabletConnected = !!tablet;
-  const digitizer = (tablet?.Properties as any)?.Specifications?.Digitizer;
+  const digitizer = tablet?.Properties.Specifications?.Digitizer;
+  if (tablet && !digitizer) {
+    console.warn("[output] tablet has no Digitizer specs; area editor falls back to profile/100mm");
+  }
   const tabletFull = {
     w: Number(digitizer?.Width) || profile.AbsoluteModeSettings?.Tablet?.Width || 100,
     h: Number(digitizer?.Height) || profile.AbsoluteModeSettings?.Tablet?.Height || 100,
@@ -181,11 +184,18 @@ function VMultiStatusPanel() {
     setBusy(true);
     daemon
       .getVMultiDeviceStatus()
-      .then(setStatus)
-      .catch(() => setStatus(null))
-      .finally(() => setBusy(false));
+      .then((s) => mounted.current && setStatus(s))
+      .catch(() => mounted.current && setStatus(null))
+      .finally(() => mounted.current && setBusy(false));
   }, []);
-  useEffect(refresh, [refresh]);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    refresh();
+    return () => {
+      mounted.current = false;
+    };
+  }, [refresh]);
 
   if (!status) return null;
   const ready = status.IsAvailable;

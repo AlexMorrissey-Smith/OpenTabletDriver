@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { useStore } from "@/lib/store";
+import { useEffect, useState } from "react";
+import { currentProfile, useStore } from "@/lib/store";
 import { bindingLabel, findType, makeStore, setSetting } from "@/lib/plugin";
+import { cn } from "@/lib/utils";
 import type { PluginSettingStore } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,15 +26,40 @@ interface Props {
   onChange: (store: PluginSettingStore | null) => void;
 }
 
-/** A single binding cell: shows the current binding, opens a picker on click. */
+/** A single binding cell: shows the current binding, opens a picker on click.
+ *  Right-click offers editing the same slot for any configured app override. */
 export function BindingButton({ label, store, onChange }: Props) {
   const catalog = useStore((s) => s.catalog);
+  const profile = useStore(currentProfile);
+  const selectedApp = useStore((s) => s.selectedApp);
+  const selectApp = useStore((s) => s.selectApp);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<PluginSettingStore | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [pendingOpen, setPendingOpen] = useState(false);
+
+  const appTargets = profile?.AppBindings ?? [];
 
   function openPicker() {
     setDraft(store ? structuredClone(store) : null);
     setOpen(true);
+  }
+
+  // After a context-menu pick switches the app, wait for the re-render so the
+  // `store` prop points at the chosen app's binding before opening the editor.
+  useEffect(() => {
+    if (pendingOpen) {
+      setPendingOpen(false);
+      setDraft(store ? structuredClone(store) : null);
+      setOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOpen, store]);
+
+  function pickTarget(app: string | null) {
+    setMenu(null);
+    selectApp(app);
+    setPendingOpen(true);
   }
 
   function selectType(path: string | null) {
@@ -56,21 +82,76 @@ export function BindingButton({ label, store, onChange }: Props) {
 
   const draftType = findType(catalog, "Bindings", draft?.Path);
 
+  const bound = !!store;
+
   return (
     <>
       <Button
         variant="outline"
-        className="w-full justify-start font-normal"
+        className="h-10 w-full justify-start gap-2 px-3 font-normal"
         onClick={openPicker}
+        onContextMenu={(e) => {
+          if (appTargets.length === 0) return;
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
       >
-        {label ? <span className="text-muted-foreground mr-2">{label}:</span> : null}
-        <span className="truncate">{bindingLabel(store, catalog)}</span>
+        {label ? <span className="shrink-0 text-muted-foreground">{label}:</span> : null}
+        <span className={cn("truncate", !bound && "text-muted-foreground/60")}>
+          {bindingLabel(store, catalog)}
+        </span>
       </Button>
+
+      {menu ? (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu(null);
+          }}
+        >
+          <div
+            className="absolute min-w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            <div className="px-2 py-1 text-xs text-muted-foreground select-none">
+              Edit this binding for
+            </div>
+            {[{ id: null as string | null, name: "All Applications" }, ...appTargets.map((a) => ({ id: a.BundleIdentifier as string | null, name: a.DisplayName }))].map(
+              (t) => (
+                <button
+                  key={t.id ?? "__all__"}
+                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    pickTarget(t.id);
+                  }}
+                >
+                  <span className="truncate">{t.name}</span>
+                  {(t.id ?? null) === selectedApp ? (
+                    <span className="ml-auto pl-2 text-muted-foreground">current</span>
+                  ) : null}
+                </button>
+              ),
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{label ? `${label} binding` : "Binding"}</DialogTitle>
+            <DialogTitle>
+              {label ? `${label} binding` : "Binding"}
+              {selectedApp ? (
+                <span className="font-normal text-muted-foreground">
+                  {" — "}
+                  {appTargets.find((a) => a.BundleIdentifier === selectedApp)?.DisplayName ??
+                    selectedApp}
+                </span>
+              ) : null}
+            </DialogTitle>
           </DialogHeader>
 
           {!catalog ? (

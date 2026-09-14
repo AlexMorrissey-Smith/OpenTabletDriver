@@ -60,10 +60,9 @@ namespace OpenTabletDriver.Devices.WindowsBluetoothBackend
                     var interfaceData = SP_DEVICE_INTERFACE_DATA.Create();
                     if (!SetupDiEnumDeviceInterfaces(deviceInfoSet, IntPtr.Zero, in interfaceGuid, index, ref interfaceData))
                     {
-                        if (Marshal.GetLastWin32Error() == ERROR_NO_MORE_ITEMS)
-                            yield break;
-
-                        continue;
+                        // Any enumerate failure ends the walk: a persistent
+                        // non-NO_MORE_ITEMS error would otherwise spin forever.
+                        yield break;
                     }
 
                     var info = GetDeviceInterfaceInfo(deviceInfoSet, ref interfaceData);
@@ -93,10 +92,9 @@ namespace OpenTabletDriver.Devices.WindowsBluetoothBackend
                     var deviceInfoData = SP_DEVINFO_DATA.Create();
                     if (!SetupDiEnumDeviceInfo(deviceInfoSet, index, ref deviceInfoData))
                     {
-                        if (Marshal.GetLastWin32Error() == ERROR_NO_MORE_ITEMS)
-                            return false;
-
-                        continue;
+                        // Any enumerate failure ends the walk: a persistent
+                        // non-NO_MORE_ITEMS error would otherwise spin forever.
+                        return false;
                     }
 
                     var instanceId = GetDeviceInstanceId(deviceInfoSet, ref deviceInfoData);

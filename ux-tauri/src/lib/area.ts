@@ -8,6 +8,12 @@ export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.ma
  *  ponytail: W/H cap is the frame extent, not the exact rotated fit — a rotated
  *  corner can still touch the edge; upgrade to solving the rotated AABB if needed. */
 export function clampArea(a: AreaSettings, fw: number, fh: number) {
+  // Sanitize first: a degenerate/NaN area (bad daemon data, 0-height resize)
+  // must never persist NaN back through autosave.
+  if (!Number.isFinite(a.Width)) a.Width = fw;
+  if (!Number.isFinite(a.Height)) a.Height = fh;
+  if (!Number.isFinite(a.X)) a.X = fw / 2;
+  if (!Number.isFinite(a.Y)) a.Y = fh / 2;
   a.Width = clamp(a.Width, 1, fw);
   a.Height = clamp(a.Height, 1, fh);
   const rad = (a.Rotation * Math.PI) / 180;
@@ -35,7 +41,7 @@ export function resizeArea(
   let w = Math.max(1, orig.Width + (opts.fromCenter ? 2 : 1) * dx * sx);
   let h = Math.max(1, orig.Height + (opts.fromCenter ? 2 : 1) * dy * sy);
   if (opts.keepAspect) {
-    const aspect = orig.Width / orig.Height;
+    const aspect = orig.Width > 0 && orig.Height > 0 ? orig.Width / orig.Height : 1;
     if (Math.abs(w / orig.Width - 1) >= Math.abs(h / orig.Height - 1)) h = w / aspect;
     else w = h * aspect;
   }

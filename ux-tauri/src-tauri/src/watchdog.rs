@@ -21,7 +21,14 @@ pub fn ensure_daemon() {
                 cmd.creation_flags(CREATE_NO_WINDOW);
             }
             match cmd.spawn() {
-                Ok(_) => eprintln!("[watchdog] spawned daemon: {program} {args:?}"),
+                Ok(mut child) => {
+                    eprintln!("[watchdog] spawned daemon: {program} {args:?}");
+                    // Reap the child so a duplicate that exits immediately
+                    // ("already running") doesn't linger as a zombie.
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                }
                 Err(e) => eprintln!("[watchdog] failed to spawn daemon ({program}): {e}"),
             }
         }

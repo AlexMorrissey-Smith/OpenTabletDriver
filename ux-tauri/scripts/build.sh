@@ -23,6 +23,7 @@ BINARIES="$HERE/src-tauri/binaries"
 EXT=""; [[ "$RID" == win-* ]] && EXT=".exe"
 
 echo "==> Publishing daemon ($RID)"
+rm -rf "$HERE/.daemon-publish"   # stale other-platform daemons otherwise linger
 dotnet publish "$REPO/OpenTabletDriver.Daemon/OpenTabletDriver.Daemon.csproj" \
   -c Release -r "$RID" --self-contained true \
   -p:PublishSingleFile=true -p:PublishTrimmed=false -p:DebugType=none \
@@ -34,7 +35,10 @@ cp "$HERE/.daemon-publish/OpenTabletDriver.Daemon${EXT}" \
 chmod +x "$BINARIES/OpenTabletDriver.Daemon-${TRIPLE}${EXT}" || true
 
 # macOS native helpers (BLE bridge for WH851 bluetooth, wheel overlay).
-if [[ "$RID" == osx-* ]] && hash swiftc 2>/dev/null; then
+# tauri.conf.json lists them as mandatory externalBin: missing swiftc must fail
+# loudly here, not as a confusing "resource not found" in the bundle step.
+if [[ "$RID" == osx-* ]]; then
+  hash swiftc 2>/dev/null || { echo "error: swiftc not found; required to build the bundled Swift helpers" >&2; exit 1; }
   echo "==> Building Swift helpers"
   swiftc "$REPO/tools/macos/WH851BleBridge/Sources/WH851BleBridge/main.swift" \
     -o "$BINARIES/OpenTabletDriver.BleBridge-${TRIPLE}" \
@@ -85,16 +89,42 @@ fi
 
 # Tauri signs the app; re-sign the .NET daemon with the JIT entitlements it needs,
 # then re-seal the bundle (inner first, bundle last — same order as eng/bash/macos).
+# Secure timestamps are required for notarization.
 if [[ "$RID" == osx-* && -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   APP="$HERE/src-tauri/target/release/bundle/macos/OpenTabletDriver.app"
   ENTITLEMENTS="$HERE/src-tauri/entitlements.plist"
-  echo "==> Re-signing daemon with .NET entitlements"
-  codesign --force --options runtime --timestamp=none --entitlements "$ENTITLEMENTS" \
+  echo "==> Re-signing daemon + helpers"
+  codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
     --identifier net.opentabletdriver --sign "$APPLE_SIGNING_IDENTITY" \
     "$APP/Contents/MacOS/OpenTabletDriver.Daemon"
-  codesign --force --options runtime --timestamp=none --entitlements "$ENTITLEMENTS" \
+  # Stable identifiers for the Swift sidecars so TCC grants survive rebuilds/updates.
+  for helper in BleBridge WheelModeOverlay DisplaySwapOverlay; do
+    codesign --force --options runtime --timestamp \
+      --identifier "net.opentabletdriver.$(echo "$helper" | tr '[:upper:]' '[:lower:]')" \
+      --sign "$APPLE_SIGNING_IDENTITY" \
+      "$APP/Contents/MacOS/OpenTabletDriver.$helper"
+  done
+  codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
     --identifier net.opentabletdriver.ux --sign "$APPLE_SIGNING_IDENTITY" "$APP"
   codesign --verify --deep --strict "$APP" && echo "==> Signature verified"
+
+  # Notarize + staple (Developer ID identities only; needs a one-time
+  # `xcrun notarytool store-credentials <profile>` on this machine).
+  PROFILE="${OTD_NOTARY_PROFILE:-otd-notary}"
+  if [[ "$APPLE_SIGNING_IDENTITY" == Developer\ ID* ]] \
+     && xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
+    echo "==> Notarizing (keychain profile: $PROFILE)"
+    ZIP="$HERE/src-tauri/target/release/bundle/macos/OpenTabletDriver-notarize.zip"
+    ditto -c -k --keepParent "$APP" "$ZIP"
+    xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait
+    rm -f "$ZIP"
+    xcrun stapler staple "$APP"
+    spctl --assess --type execute --verbose=2 "$APP" && echo "==> Notarized + stapled"
+  else
+    echo "==> Skipping notarization: no usable keychain profile '$PROFILE'."
+    echo "    One-time setup: xcrun notarytool store-credentials $PROFILE \\"
+    echo "      --apple-id <apple-id> --team-id <team-id> --password <app-specific-password>"
+  fi
 fi
 
 echo "==> Done. Bundle under src-tauri/target/release/bundle/"

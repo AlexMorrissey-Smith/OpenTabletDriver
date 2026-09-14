@@ -281,7 +281,7 @@ namespace OpenTabletDriver.Desktop.Profiles
         {
             ArgumentNullException.ThrowIfNull(spec);
 
-            if (spec.Wheels != null && spec.Wheels.Count >= wheelIndex && spec.Wheels[wheelIndex].StepCount != null)
+            if (spec.Wheels != null && spec.Wheels.Count > wheelIndex && spec.Wheels[wheelIndex].StepCount != null)
                 return 360d / spec.Wheels[wheelIndex].StepCount!.Value;
 
             throw new InvalidOperationException("Provided TabletSpecifications does not define wheel step count for this wheel");

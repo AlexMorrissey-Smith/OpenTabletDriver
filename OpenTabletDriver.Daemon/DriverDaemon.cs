@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using OpenTabletDriver.Desktop;
 using OpenTabletDriver.Desktop.Binding;
@@ -35,6 +36,9 @@ namespace OpenTabletDriver.Daemon
     {
         private const string AVALONIA_REVISION = "0.7.0.0";
 
+        private CancellationTokenSource? _devicesChangedDebounce;
+        private static EventHandler<OverlayRequest>? _overlayForwarder;
+
         public DriverDaemon(Driver driver)
         {
             Driver = driver;
@@ -48,24 +52,40 @@ namespace OpenTabletDriver.Daemon
 
             InitializePlatform();
             Driver.TabletsChanged += (sender, e) => TabletsChanged?.Invoke(sender, e);
-            OverlayHub.OverlayRequested += (sender, e) => Overlay?.Invoke(this, e);
-            Driver.CompositeDeviceHub.DevicesChanged += async (sender, args) =>
+            // Static event: drop any forwarder from a previous instance so a
+            // recreated daemon can't leak or fire overlays on a dead one.
+            if (_overlayForwarder != null)
+                OverlayHub.OverlayRequested -= _overlayForwarder;
+            _overlayForwarder = (sender, e) => Overlay?.Invoke(this, e);
+            OverlayHub.OverlayRequested += _overlayForwarder;
+            Driver.CompositeDeviceHub.DevicesChanged += (sender, args) =>
             {
                 // Removals matter too: a BLE tablet powering off only raises a
                 // removal, and its endpoint stream blocks forever instead of erroring.
-                if (!args.Additions.Any() && !args.Removals.Any(x => Driver.KnownVendorIDs.Contains(x.VendorID)))
-                    return;
-
                 // only re-initialize pipeline if a relevant device is plugged in or removed
-                if (args.Additions.Concat(args.Removals).Any(x => Driver.KnownVendorIDs.Contains(x.VendorID)))
-                {
-                    await DetectTablets();
-                    await SetSettings(Settings);
-                }
-                else
+                if (!args.Additions.Concat(args.Removals).Any(x => Driver.KnownVendorIDs.Contains(x.VendorID)))
                 {
                     Log.Write(nameof(DriverDaemon), "No known tablets added, skipping detect", LogLevel.Debug);
+                    return;
                 }
+
+                // Debounce: a flapping BLE link (sleep/wake) raises bursts of
+                // add/remove pairs; rebuild the pipeline once after it settles.
+                _devicesChangedDebounce?.Cancel();
+                var cts = _devicesChangedDebounce = new CancellationTokenSource();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(1), cts.Token);
+                        await DetectTablets();
+                        await SetSettings(Settings);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // superseded by a newer device change
+                    }
+                });
             };
 
             foreach (var driverInfo in DriverInfo.GetDriverInfos())
@@ -112,8 +132,21 @@ namespace OpenTabletDriver.Daemon
         public async Task Initialize()
         {
             await LoadUserSettings();
+
+            // Auto-adapt output areas when monitors are (dis)connected; notify
+            // clients so a connected GUI refreshes its view of the new layout.
+            _layoutWatcher = new DisplayLayoutWatcher(
+                () => Settings,
+                async settings =>
+                {
+                    await SetSettings(settings);
+                    Resynchronize?.Invoke(this, EventArgs.Empty);
+                });
+
             Resynchronize?.Invoke(this, EventArgs.Empty);
         }
+
+        private DisplayLayoutWatcher? _layoutWatcher;
 
         private static IEnumerable<string> safeGetProcessDetails(Process[] processes)
         {
@@ -230,6 +263,18 @@ namespace OpenTabletDriver.Daemon
             return Task.FromResult(Desktop.Output.WindowsInk.VMultiDeviceDetector.GetStatus());
         }
 
+        public Task<IEnumerable<RunningApplication>> GetRunningApplications()
+        {
+            // Only macOS has a real provider today; others return empty and the
+            // GUI falls back to manual entry.
+            var apps = OpenTabletDriver.Desktop.Interop.DesktopInterop.ForegroundApp
+                .GetRunningApplications()
+                .Select(a => new RunningApplication { BundleId = a.BundleId, DisplayName = a.DisplayName })
+                .OrderBy(a => a.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return Task.FromResult<IEnumerable<RunningApplication>>(apps);
+        }
+
         public Task<VirtualScreenInfo> GetVirtualScreen()
         {
             OpenTabletDriver.Desktop.Interop.DesktopInterop.RefreshVirtualScreen();
@@ -298,6 +343,17 @@ namespace OpenTabletDriver.Daemon
                 else
                     setting.Kind = "string";
 
+                setting.Multiline = prop.GetCustomAttribute<MultilinePropertyAttribute>() != null;
+
+                // PropertyValidated: a static member enumerates the allowed values
+                // (e.g. MouseBinding.ValidButtons) — dropdown, not free text.
+                if (prop.GetCustomAttribute<PropertyValidatedAttribute>() is PropertyValidatedAttribute validated
+                    && validated.GetValue<IEnumerable<string>>(prop)?.ToArray() is { Length: > 0 } validValues)
+                {
+                    setting.Kind = "enum";
+                    setting.EnumValues = validValues;
+                }
+
                 if (attr is SliderPropertyAttribute slider)
                 {
                     setting.Min = slider.Min;
@@ -349,7 +405,9 @@ namespace OpenTabletDriver.Daemon
 
         public Task SavePreset(string name, Settings settings)
         {
-            var safeName = string.Concat(name.Split(Path.GetInvalidFileNameChars()));
+            var safeName = string.Concat(name.Split(Path.GetInvalidFileNameChars())).Trim().TrimEnd('.');
+            if (string.IsNullOrWhiteSpace(safeName))
+                safeName = "preset";
             var file = new FileInfo(Path.Join(PresetMgr.PresetDirectory.FullName, safeName + ".json"));
             settings.Serialize(file);
             PresetMgr.Refresh();
@@ -390,6 +448,20 @@ namespace OpenTabletDriver.Daemon
         }
 
         public Task SetSettings(Settings? settings)
+        {
+            // Serialize pipeline rebuilds: RPC clients, DevicesChanged and the
+            // sleep detector can all call in concurrently, and an interleaved
+            // dispose/reconstruct of OutputModes corrupts the pipeline.
+            // Monitor is reentrant, so the revert path below stays safe.
+            lock (_setSettingsSync)
+            {
+                return SetSettingsCore(settings);
+            }
+        }
+
+        private readonly object _setSettingsSync = new();
+
+        private Task SetSettingsCore(Settings? settings)
         {
             try
             {
@@ -463,6 +535,19 @@ namespace OpenTabletDriver.Daemon
                 SetToolSettings();
 
                 lastValidSettings = settings;
+
+                // Persist: the Tauri GUI autosaves via SetSettings and has no file
+                // access of its own (the old Eto GUI wrote settings.json itself).
+                // Without this, every edit dies with the daemon process.
+                try
+                {
+                    settings.Serialize(new FileInfo(AppInfo.Current.SettingsFile));
+                }
+                catch (Exception e)
+                {
+                    Log.Exception(e); // don't fail the apply over a disk error
+                }
+
                 return Task.CompletedTask;
             }
             catch

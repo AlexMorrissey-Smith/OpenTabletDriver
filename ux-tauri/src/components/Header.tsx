@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { current } from "immer";
 import { currentProfile, useStore } from "@/lib/store";
 import { daemon } from "@/lib/daemon";
+import type { RunningApplication } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,9 +36,19 @@ export function Header({ children }: { children?: React.ReactNode }) {
   const [addOpen, setAddOpen] = useState(false);
   const [bundleId, setBundleId] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [runningApps, setRunningApps] = useState<RunningApplication[]>([]);
 
   const profiles = settings?.Profiles ?? [];
   const appBindings = profile?.AppBindings ?? [];
+
+  // Populate the picker with live app names each time the dialog opens.
+  useEffect(() => {
+    if (addOpen) daemon.getRunningApplications().then(setRunningApps).catch(() => setRunningApps([]));
+  }, [addOpen]);
+
+  const pickable = runningApps.filter(
+    (a) => !appBindings.some((b) => b.BundleIdentifier === a.BundleId),
+  );
 
   function addApp() {
     if (!bundleId.trim()) return;
@@ -47,7 +59,8 @@ export function Header({ children }: { children?: React.ReactNode }) {
       p.AppBindings.push({
         BundleIdentifier: id,
         DisplayName: name,
-        BindingSettings: structuredClone(p.Bindings),
+        // current(): unwrap the immer draft proxy before cloning.
+        BindingSettings: structuredClone(current(p).Bindings),
       });
     });
     selectApp(id);
@@ -150,6 +163,40 @@ export function Header({ children }: { children?: React.ReactNode }) {
             <DialogTitle>Add application override</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {pickable.length > 0 ? (
+              <div className="space-y-1">
+                <Label>Application</Label>
+                <Select
+                  value={pickable.some((a) => a.BundleId === bundleId) ? bundleId : ""}
+                  onValueChange={(v) => {
+                    const app = pickable.find((a) => a.BundleId === v);
+                    if (app) {
+                      setBundleId(app.BundleId);
+                      setDisplayName(app.DisplayName);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose a running application…">
+                      {(v: string) =>
+                        pickable.find((a) => a.BundleId === v)?.DisplayName ||
+                        "Choose a running application…"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pickable.map((a) => (
+                      <SelectItem key={a.BundleId} value={a.BundleId}>
+                        {a.DisplayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Open the app you want first if it isn't listed, or enter it manually below.
+                </p>
+              </div>
+            ) : null}
             <div className="space-y-1">
               <Label>Bundle identifier / app path</Label>
               <Input

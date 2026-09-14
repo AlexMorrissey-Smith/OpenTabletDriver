@@ -95,18 +95,10 @@ namespace OpenTabletDriver.Daemon
             {
                 daemonRunning = true;
                 var daemon = BuildDaemon();
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await daemon.Initialize();
-                    }
-                    catch (Exception e)
-                    {
-                        Log.Exception(e, LogLevel.Fatal);
-                        CloseDaemon();
-                    }
-                }, cts.Token);
+                // Apply user settings BEFORE serving RPC: a client SetSettings
+                // racing Initialize() double-disposes/rebuilds output modes.
+                // The GUI's reconnect loop tolerates the later pipe start.
+                await daemon.Initialize();
 
                 await host.Run(daemon, cts.Token);
                 daemonRunning = false;

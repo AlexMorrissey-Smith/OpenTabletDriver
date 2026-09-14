@@ -54,13 +54,15 @@ function DisplaySwapDiagram({ payload }: { payload: { Selection: string; Display
   const maxY = Math.max(...displays.map((d) => d.Y + d.H));
   const vw = maxX - minX;
   const vh = maxY - minY;
+  if (vw <= 0 || vh <= 0) return null;
   const all = payload.Selection === "all";
-  const selected = all ? -1 : Number(payload.Selection);
+  const parsed = Number(payload.Selection);
+  const selected = all || !Number.isFinite(parsed) ? -1 : parsed;
 
   return (
     <div className="mt-24 rounded-2xl bg-black/70 p-6 shadow-2xl backdrop-blur">
       <div className="mb-3 text-center text-xs uppercase tracking-widest text-white/60">
-        Output → {all ? "All displays" : `Display ${selected + 1}`}
+        Output → {all ? "All displays" : selected >= 0 ? `Display ${selected + 1}` : "Display"}
       </div>
       <svg width={320} height={(320 * vh) / vw} viewBox={`0 0 ${vw} ${vh}`}>
         {displays.map((d, i) => {

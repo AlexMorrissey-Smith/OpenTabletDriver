@@ -1,8 +1,8 @@
 [package]
 name = "ux-tauri"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.6.7"
+description = "OpenTabletDriver GUI"
+authors = ["OpenTabletDriver"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,4 +26,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync"
 thiserror = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# NSProcessInfo activity assertion to keep macOS App Nap from throttling us
+# (and the daemon) while the window is hidden. Already in the tree via Tauri.
+objc2-foundation = { version = "0.3", features = ["NSProcessInfo", "NSString"] }
 

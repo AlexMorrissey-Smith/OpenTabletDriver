@@ -93,14 +93,15 @@ namespace OpenTabletDriver.Desktop.Interop.Input
 
         public void ScrollVertically(int amount)
         {
+            // Accumulate, don't overwrite: two calls before a Flush must not drop one.
             lock (_sync)
-                _scrollDeltaX = -amount;
+                _scrollDeltaX = (_scrollDeltaX ?? 0) - amount;
         }
 
         public void ScrollHorizontally(int amount)
         {
             lock (_sync)
-                _scrollDeltaY = -amount;
+                _scrollDeltaY = (_scrollDeltaY ?? 0) - amount;
         }
 
         public void Flush()

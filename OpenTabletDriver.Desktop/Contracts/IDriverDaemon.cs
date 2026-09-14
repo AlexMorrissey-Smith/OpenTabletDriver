@@ -31,6 +31,8 @@ namespace OpenTabletDriver.Desktop.Contracts
         Task<PluginTypeCatalog> GetPluginTypes();
         Task<VirtualScreenInfo> GetVirtualScreen();
         Task<VMultiDeviceStatus> GetVMultiDeviceStatus();
+        /// <summary>Running GUI applications, for the app-specific bindings picker.</summary>
+        Task<IEnumerable<RunningApplication>> GetRunningApplications();
         Task<IEnumerable<PluginMetadata>> GetLoadedPlugins();
         Task<IEnumerable<PluginMetadata>> GetPluginMetadataRepository();
 

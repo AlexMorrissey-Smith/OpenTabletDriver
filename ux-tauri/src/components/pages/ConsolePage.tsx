@@ -24,6 +24,13 @@ const LEVEL_CLASS: Record<number, string> = {
   5: "text-destructive",
 };
 
+/** Robust to any timestamp format the daemon emits (not just ISO-8601). */
+function formatTime(time: string | undefined): string {
+  if (!time) return "";
+  const d = new Date(time);
+  return Number.isNaN(d.getTime()) ? time : d.toLocaleTimeString(undefined, { hour12: false });
+}
+
 export function ConsolePage() {
   const log = useStore((s) => s.log);
   const clearLog = useStore((s) => s.clearLog);
@@ -68,7 +75,7 @@ export function ConsolePage() {
             {filtered.map((m, i) => (
               <tr key={i} className="border-b border-border/50 align-top">
                 <td className="whitespace-nowrap px-2 py-0.5 text-muted-foreground">
-                  {m.Time?.slice(11, 19)}
+                  {formatTime(m.Time)}
                 </td>
                 <td className={`px-2 py-0.5 ${LEVEL_CLASS[m.Level] ?? ""}`}>
                   {LEVEL_NAME[m.Level] ?? m.Level}

@@ -8,7 +8,9 @@
 !macro NSIS_HOOK_POSTINSTALL
   DetailPrint "Installing VMulti VirtualHID driver (Windows Ink pressure)..."
   SetOutPath "$INSTDIR\vmulti"
-  File /r "$%VMULTI_DIR%\*"
+  ; Forward slash: the source glob resolves on the build host, and makensis
+  ; runs on macOS/Linux during cross-builds.
+  File /r "$%VMULTI_DIR%/*"
 
   ; Remove-then-install: `devcon install` always creates a new root device
   ; node, so a reinstall/upgrade would otherwise stack duplicates. Remove

@@ -133,15 +133,23 @@ fn frame_message(value: &Value) -> Vec<u8> {
     out
 }
 
-/// Connect/reconnect loop. Runs for the lifetime of the app.
+/// Connect/reconnect loop. Runs for the lifetime of the app. Owns daemon
+/// startup: whenever the pipe is unreachable it (re)spawns the daemon,
+/// throttled to every 8th failed attempt (~6s); the daemon's single-instance
+/// mutex makes duplicate spawns exit harmlessly.
 async fn serve(inner: Arc<Inner>, app: AppHandle) {
+    let mut failures: u32 = 0;
     loop {
         match connect().await {
             Ok(stream) => {
+                failures = 0;
                 run_connection(stream, &inner, &app).await;
             }
             Err(_) => {
-                // daemon not up yet; watchdog will (re)spawn it. Keep trying.
+                if failures % 8 == 0 {
+                    crate::watchdog::ensure_daemon();
+                }
+                failures = failures.wrapping_add(1);
             }
         }
         set_connected(&inner, &app, false);
@@ -207,6 +215,21 @@ async fn dispatch(msg: Value, inner: &Arc<Inner>, app: &AppHandle) {
             }
             return;
         }
+    }
+
+    // Server->client *request* (id + method): we expose no callable methods,
+    // so answer with MethodNotFound rather than leaving the daemon's proxy
+    // call hanging forever.
+    if let (Some(id), Some(method)) = (msg.get("id"), msg.get("method").and_then(Value::as_str)) {
+        let reply = json!({
+            "jsonrpc": "2.0",
+            "id": id.clone(),
+            "error": { "code": -32601, "message": format!("method not found: {method}") },
+        });
+        if let Some(tx) = inner.outbound.lock().await.as_ref() {
+            let _ = tx.send(frame_message(&reply));
+        }
+        return;
     }
 
     // Notification (server event): method + params, no id.

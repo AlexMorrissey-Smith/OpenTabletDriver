@@ -38,6 +38,8 @@ namespace OpenTabletDriver.Desktop.Binding
         private const long SuppressGraceMs = 100; // ride over single-frame Bluetooth button-bit drops
 
         private string? _activeBundleId;
+        private volatile string? _detectedBundleId; // written by the background probe, read on the report thread
+        private int _probeInFlight;
         private long _lastForegroundCheck;
         private const long ForegroundCheckIntervalMs = 150; // foreground app changes far slower than tablet report rate
 
@@ -79,12 +81,27 @@ namespace OpenTabletDriver.Desktop.Binding
                 return;
 
             long now = Environment.TickCount64;
-            if (now - _lastForegroundCheck < ForegroundCheckIntervalMs)
-                return;
-            _lastForegroundCheck = now;
+            if (now - _lastForegroundCheck >= ForegroundCheckIntervalMs
+                && System.Threading.Interlocked.CompareExchange(ref _probeInFlight, 1, 0) == 0)
+            {
+                _lastForegroundCheck = now;
+                // Probe OFF the report thread: CGWindowListCopyWindowInfo is a
+                // window-server round-trip and would add latency spikes to pen input.
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        bool detected = DesktopInterop.ForegroundApp.TryGetForegroundApp(out var id, out _);
+                        _detectedBundleId = detected ? id : null;
+                    }
+                    finally
+                    {
+                        System.Threading.Interlocked.Exchange(ref _probeInFlight, 0);
+                    }
+                });
+            }
 
-            bool detected = DesktopInterop.ForegroundApp.TryGetForegroundApp(out var id, out _);
-            string? bundleId = detected ? id : null;
+            string? bundleId = _detectedBundleId;
             if (bundleId == _activeBundleId)
                 return;
 
@@ -212,7 +229,10 @@ namespace OpenTabletDriver.Desktop.Binding
             _suppressTabletOutput = suppress;
 
             uint realPressure = report.Pressure;
-            float pressurePercent = suppress ? 0f : (float)report.Pressure / (float)pen.MaxPressure * 100f;
+            // MaxPressure 0 (spec omits it) would divide to NaN and poison threshold comparisons.
+            float pressurePercent = suppress || pen.MaxPressure == 0
+                ? 0f
+                : (float)report.Pressure / (float)pen.MaxPressure * 100f;
             if (_isEraser)
                 ActiveBindingSet.Eraser?.Invoke(tablet, report, pressurePercent);
             else

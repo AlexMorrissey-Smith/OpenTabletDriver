@@ -62,7 +62,15 @@ export const useStore = create<Store>()(
         set((s) => {
           s.connected = c;
         });
-        if (c) get().reload();
+        if (c) {
+          // Fresh (possibly restarted) daemon: drop stale caches so reload
+          // re-fetches the log and plugin catalog instead of keeping old data.
+          set((s) => {
+            s.catalog = null;
+            s.log = [];
+          });
+          get().reload();
+        }
       });
       events.onTabletsChanged(() => get().reload());
       events.onResynchronize(() => get().reload());
@@ -110,6 +118,17 @@ export const useStore = create<Store>()(
           if (catalog) s.catalog = catalog;
           if (!s.selectedTablet || !settings.Profiles.some((p) => p.Tablet === s.selectedTablet)) {
             s.selectedTablet = settings.Profiles[0]?.Tablet ?? null;
+          }
+          // Selected app override may have vanished (preset applied, settings
+          // reloaded): fall back to "All Applications" instead of editing into
+          // the void.
+          const prof =
+            settings.Profiles.find((p) => p.Tablet === s.selectedTablet) ?? settings.Profiles[0];
+          if (
+            s.selectedApp != null &&
+            !prof?.AppBindings?.some((a) => a.BundleIdentifier === s.selectedApp)
+          ) {
+            s.selectedApp = null;
           }
           s.ready = true;
           s.error = null;
@@ -168,12 +187,27 @@ export const useStore = create<Store>()(
     save() {
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
+        saveTimer = null;
         const s = get().settings;
         if (s) daemon.setSettings(s).catch((e) => console.error("[autosave] failed", e));
       }, 400);
     },
   })),
 );
+
+// Flush a pending debounced save before the page goes away (window hidden to
+// tray or app quitting) so an edit made <400ms before close isn't lost.
+function flushSave() {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  const s = useStore.getState().settings;
+  if (s) daemon.setSettings(s).catch((e) => console.error("[autosave] flush failed", e));
+}
+window.addEventListener("beforeunload", flushSave);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushSave();
+});
 
 // ---- selectors (read-only helpers) ---------------------------------------
 

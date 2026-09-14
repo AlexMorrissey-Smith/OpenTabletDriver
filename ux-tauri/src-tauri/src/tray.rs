@@ -116,6 +116,9 @@ fn build_menu(app: &AppHandle, presets: &[String]) -> tauri::Result<Menu<tauri::
 /// Show and focus the main window (creating nothing; window is hidden on close).
 pub fn show_main(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
+        // Window is coming up → become a regular app (Dock icon, focusable).
+        #[cfg(target_os = "macos")]
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();

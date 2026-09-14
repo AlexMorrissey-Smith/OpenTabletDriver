@@ -23,6 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Menu } from "lucide-react";
 
+// The permission panes are macOS TCC concepts; hide the items elsewhere.
+const isMac = navigator.userAgent.includes("Mac");
+
 export function AppMenu() {
   const open = useUI((s) => s.open);
   const reload = useStore((s) => s.reload);
@@ -60,17 +63,21 @@ export function AppMenu() {
           <DropdownMenuItem onClick={() => open("debugger")}>Tablet Debugger…</DropdownMenuItem>
           <DropdownMenuItem onClick={() => open("strings")}>Device String Reader…</DropdownMenuItem>
           <DropdownMenuItem onClick={() => open("updater")}>Check for Updates…</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => invoke("open_permission_pane", { pane: "accessibility" })}
-          >
-            Grant Accessibility…
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => invoke("open_permission_pane", { pane: "input-monitoring" })}
-          >
-            Grant Input Monitoring…
-          </DropdownMenuItem>
+          {isMac && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => invoke("open_permission_pane", { pane: "accessibility" })}
+              >
+                Grant Accessibility…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => invoke("open_permission_pane", { pane: "input-monitoring" })}
+              >
+                Grant Input Monitoring…
+              </DropdownMenuItem>
+            </>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => open("greeter")}>Show Guide…</DropdownMenuItem>
           <DropdownMenuItem

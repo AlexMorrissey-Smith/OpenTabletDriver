@@ -71,6 +71,8 @@ const PAGES: Record<string, PageDef> = {
 
 export function AppShell() {
   const connected = useStore((s) => s.connected);
+  const error = useStore((s) => s.error);
+  const reload = useStore((s) => s.reload);
   const activePage = useStore((s) => s.activePage);
   const profile = useStore(currentProfile);
 
@@ -88,15 +90,32 @@ export function AppShell() {
       <div className="flex min-h-0 flex-1">
         <Sidebar />
         <main className="flex min-h-0 flex-1 flex-col">
+          {error && (
+            <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-6 py-2 text-sm text-destructive">
+              <span className="truncate" title={error}>
+                Driver error: {error}
+              </span>
+              <button
+                className="shrink-0 rounded-md border border-destructive/40 px-2 py-0.5 text-xs hover:bg-destructive/20"
+                onClick={() => void reload()}
+              >
+                Retry
+              </button>
+            </div>
+          )}
           {!connected ? (
             <Connecting />
           ) : !profile && !page.standalone ? (
             <NoTabletState />
           ) : (
             <>
-              <div className={`${column} shrink-0 select-none px-6 pt-5 pb-4`}>
-                <h1 className="text-lg font-semibold">{page.title}</h1>
-                <p className="text-sm text-muted-foreground">{page.description}</p>
+              {/* Same container nesting as the content below (px outside the
+                  centered column) so the title aligns with the page body. */}
+              <div className="shrink-0 select-none px-6 pt-5 pb-4">
+                <div className={column}>
+                  <h1 className="text-lg font-semibold">{page.title}</h1>
+                  <p className="text-sm text-muted-foreground">{page.description}</p>
+                </div>
               </div>
               <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
                 <div className={`${column} h-full`}>

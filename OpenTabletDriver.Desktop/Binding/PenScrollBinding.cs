@@ -34,6 +34,10 @@ namespace OpenTabletDriver.Desktop.Binding
         private Vector2 _vel;           // smoothed velocity, scroll units/ms
         private Vector2 _momentum;      // active coast velocity, scroll units/ms
         private readonly Stopwatch _watch = Stopwatch.StartNew();
+        // Guards _momentum/_gAccX/_gAccY, shared between the report thread
+        // (Start/StopGlide) and the timer thread (Glide). Timer Start/Stop must
+        // stay OUTSIDE this lock: Stop can join the timer thread → deadlock.
+        private readonly object _glideSync = new();
 
         [Resolved]
         public IMouseScrollHandler? Pointer { set; get; }
@@ -156,8 +160,11 @@ namespace OpenTabletDriver.Desktop.Binding
             float speed = _vel.Length();
             if (speed < MinGlideSpeed)
                 return;
-            _momentum = speed > MaxGlideSpeed ? _vel * (MaxGlideSpeed / speed) : _vel;
-            _gAccX = _gAccY = 0;
+            lock (_glideSync)
+            {
+                _momentum = speed > MaxGlideSpeed ? _vel * (MaxGlideSpeed / speed) : _vel;
+                _gAccX = _gAccY = 0;
+            }
             Timer?.Start();
         }
 
@@ -165,23 +172,28 @@ namespace OpenTabletDriver.Desktop.Binding
         // MacOSVirtualMouse is now internally locked, so emission is safe.
         private void Glide()
         {
-            if (_momentum.Length() < MinGlideSpeed)
+            lock (_glideSync)
             {
-                _momentum = Vector2.Zero; // coast spent; idles until Release/new-contact stops it
-                return;
+                if (_momentum.Length() < MinGlideSpeed)
+                {
+                    _momentum = Vector2.Zero; // coast spent; idles until Release/new-contact stops it
+                    return;
+                }
+
+                var step = _momentum * GlideIntervalMs; // units this tick
+                Emit(ref _gAccY, step.Y, vertical: true);
+                Emit(ref _gAccX, step.X, vertical: false);
+                _momentum *= Friction;
             }
-
-            var step = _momentum * GlideIntervalMs; // units this tick
-            Emit(ref _gAccY, step.Y, vertical: true);
-            Emit(ref _gAccX, step.X, vertical: false);
             Flush();
-
-            _momentum *= Friction;
         }
 
         private void StopGlide()
         {
-            _momentum = Vector2.Zero;
+            lock (_glideSync)
+            {
+                _momentum = Vector2.Zero;
+            }
             Timer?.Stop();
         }
 

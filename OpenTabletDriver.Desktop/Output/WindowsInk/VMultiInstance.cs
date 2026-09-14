@@ -5,7 +5,7 @@ using OpenTabletDriver.Plugin;
 
 namespace OpenTabletDriver.Desktop.Output.WindowsInk
 {
-    internal class VMultiInstance
+    internal class VMultiInstance : IDisposable
     {
         private readonly HidStream? _device;
         protected readonly byte[] Buffer;
@@ -24,6 +24,13 @@ namespace OpenTabletDriver.Desktop.Output.WindowsInk
         public void Write()
         {
             _device?.Write(Buffer);
+        }
+
+        /// <summary>Release the VMulti output endpoint handle; every pipeline
+        /// rebuild opens a fresh one and the endpoints are a finite resource.</summary>
+        public void Dispose()
+        {
+            _device?.Dispose();
         }
 
         public unsafe void EnableButtonBit(int bit)

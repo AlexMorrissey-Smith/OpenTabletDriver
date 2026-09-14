@@ -65,6 +65,12 @@ export interface VirtualScreenInfo {
   Displays: DisplayInfo[];
 }
 
+/** A running GUI application (app-specific bindings picker). */
+export interface RunningApplication {
+  BundleId: string;
+  DisplayName: string;
+}
+
 /** Install state of the external VMulti driver (Windows Ink output mode). */
 export interface VMultiDeviceStatus {
   Kind: number; // 0 Ready, 1 Missing, 2 Incomplete, 3 OpenFailed
@@ -155,9 +161,22 @@ export interface DeviceIdentifier {
   [k: string]: unknown;
 }
 
+export interface DigitizerSpecifications {
+  Width: number;
+  Height: number;
+  MaxX: number;
+  MaxY: number;
+  [k: string]: unknown;
+}
+
 export interface TabletReference {
   Properties: {
     Name: string;
+    Specifications?: {
+      Digitizer?: DigitizerSpecifications | null;
+      Pen?: { MaxPressure: number; [k: string]: unknown } | null;
+      [k: string]: unknown;
+    } | null;
     [k: string]: unknown;
   };
   Identifiers: DeviceIdentifier[];
@@ -214,6 +233,7 @@ export interface SerializedPluginSetting {
   Property: string;
   DisplayName: string;
   Kind: "bool" | "number" | "string" | "enum";
+  Multiline?: boolean;
   Default?: unknown;
   EnumValues?: string[] | null;
   Min?: number | null;

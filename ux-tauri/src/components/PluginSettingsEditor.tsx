@@ -35,6 +35,22 @@ export function PluginSettingsEditor({ type, store, onSet }: Props) {
     <div className="space-y-3">
       {type.Settings.map((s) => {
         const value = getSetting(store, s.Property);
+        if (s.Kind === "string" && s.Multiline) {
+          // Full-width script/source editor.
+          return (
+            <div key={s.Property} className="space-y-1">
+              <Label className="text-sm" title={s.ToolTip ?? undefined}>
+                {s.DisplayName || s.Property}
+              </Label>
+              <textarea
+                className="min-h-28 w-full resize-y rounded-md border bg-transparent p-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                spellCheck={false}
+                value={value != null ? String(value) : ""}
+                onChange={(e) => onSet(s.Property, e.target.value)}
+              />
+            </div>
+          );
+        }
         return (
           <div key={s.Property} className="grid grid-cols-[1fr_auto] items-center gap-3">
             <Label className="text-sm" title={s.ToolTip ?? undefined}>

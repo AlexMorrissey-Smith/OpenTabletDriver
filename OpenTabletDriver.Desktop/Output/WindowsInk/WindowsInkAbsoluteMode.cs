@@ -68,5 +68,17 @@ namespace OpenTabletDriver.Desktop.Output.WindowsInk
             }
             get => _forcedSync;
         }
+
+        // Base Dispose only disposes pipeline Elements, never the Pointer:
+        // release the VMulti endpoint handle on every pipeline rebuild.
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _pointer?.Dispose();
+                _pointer = null;
+            }
+            base.Dispose(disposing);
+        }
     }
 }

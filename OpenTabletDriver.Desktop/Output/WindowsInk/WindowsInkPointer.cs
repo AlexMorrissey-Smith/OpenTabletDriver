@@ -6,7 +6,7 @@ using OpenTabletDriver.Plugin.Platform.Pointer;
 
 namespace OpenTabletDriver.Desktop.Output.WindowsInk
 {
-    internal unsafe class WindowsInkPointer : IAbsolutePointer, IPressureHandler, ITiltHandler, IEraserHandler, ISynchronousPointer, IMouseButtonHandler
+    internal unsafe class WindowsInkPointer : IAbsolutePointer, IPressureHandler, ITiltHandler, IEraserHandler, ISynchronousPointer, IMouseButtonHandler, IDisposable
     {
         private readonly Vector2 _conversionFactor;
         private readonly IVirtualScreen _screen;
@@ -162,6 +162,11 @@ namespace OpenTabletDriver.Desktop.Output.WindowsInk
             if (VMultiInstance.HasBit(buttons, (int)(WindowsInkButtonFlags.Press | WindowsInkButtonFlags.Eraser)))
                 _instance.EnableButtonBit((int)(isEraser ? WindowsInkButtonFlags.Eraser : WindowsInkButtonFlags.Press));
             _rawPointer->Pressure = pressure;
+        }
+
+        public void Dispose()
+        {
+            _instance.Dispose();
         }
     }
 }

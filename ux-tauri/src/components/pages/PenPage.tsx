@@ -2,6 +2,7 @@ import { currentBindings, useStore } from "@/lib/store";
 import { BindingButton } from "../BindingButton";
 import { BindingArray } from "../BindingArray";
 import { PressureCurve } from "../PressureCurve";
+import { PressureTester } from "../PressureTester";
 import { Section } from "../Section";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -16,10 +17,6 @@ export function PenPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <Section title="Tip">
         <div className="space-y-3">
-          <BindingButton
-            store={bindings.TipButton}
-            onChange={(v) => updateBindings((b) => void (b.TipButton = v))}
-          />
           <div className="flex items-center gap-3">
             <Label className="text-sm w-40">Activation threshold</Label>
             <Input
@@ -65,6 +62,13 @@ export function PenPage() {
         description="Shape how physical tip pressure maps to output pressure."
       >
         <PressureCurve />
+      </Section>
+
+      <Section
+        title="Pressure test"
+        description="Press the pen on the tablet to check the full pressure range."
+      >
+        <PressureTester />
       </Section>
 
       <Section title="Pen buttons">

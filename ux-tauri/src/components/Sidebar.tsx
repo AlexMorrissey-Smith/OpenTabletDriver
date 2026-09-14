@@ -64,43 +64,6 @@ export function Sidebar() {
             </button>
           );
         })}
-
-      <StatusFooter />
     </nav>
-  );
-}
-
-/** Always-visible answer to "is it working?": daemon link + detected tablet. */
-function StatusFooter() {
-  const connected = useStore((s) => s.connected);
-  const tablets = useStore((s) => s.tablets);
-
-  const tabletName = tablets[0]?.Properties?.Name;
-
-  return (
-    <div className="mt-auto select-none border-t border-border/60 px-3 pt-3 pb-1 text-xs">
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            connected ? "bg-emerald-500" : "bg-red-500",
-          )}
-        />
-        <span className="text-sidebar-foreground/70">
-          {connected ? "Driver running" : "Driver offline"}
-        </span>
-      </div>
-      <div className="mt-1.5 flex items-center gap-2">
-        <span
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            tabletName ? "bg-emerald-500" : "bg-muted-foreground/40",
-          )}
-        />
-        <span className="truncate text-sidebar-foreground/70" title={tabletName}>
-          {tabletName ?? "No tablet"}
-        </span>
-      </div>
-    </div>
   );
 }
